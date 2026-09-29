@@ -154,17 +154,17 @@ const KEYWORD_RULES = {
  * ================================================================== */
 const QUIZ = [
   {
-    id: "q1", ask: "在超好看的街景前，你的第一個動作是？",
+    id: "q1", ask: "在超好看的景點前，你的第一個動作是？",
     a: { key: "photo", icon: "📸", label: "先拍！出片率最重要", sub: "機位、光線、角度我來喬" },
     b: { key: "deep", icon: "🧭", label: "先走進去，體驗最重要", sub: "照片之後再說，先聞聞味道" },
   },
   {
-    id: "q2", ask: "旅途中的早晨，你通常是？",
+    id: "q2", ask: "旅途中的早晨，你通常？",
     a: { key: "early", icon: "⏰", label: "07:00 起床衝第一攤", sub: "早餐是行程的一部分" },
     b: { key: "late", icon: "🛏️", label: "睡到自然醒才有靈魂", sub: "中午出門也是一種節奏" },
   },
   {
-    id: "q3", ask: "出發前的行程表，你的版本是？",
+    id: "q3", ask: "出發前的行程表，你怎麼排？",
     a: { key: "plan", icon: "📊", label: "Excel 排到分鐘，附備案", sub: "雨天備案、交通轉乘都寫好" },
     b: { key: "free", icon: "🍃", label: "到了再說，隨興隨緣", sub: "只訂機票飯店，其他看心情" },
   },
@@ -208,22 +208,22 @@ const MAP_NODES = [
 const ROUNDS = [
   {
     id: 1, node: 0, title: "晨間集合", subtitle: "大阪冬晨的起床考驗", clock: "07:00 清晨",
-    scene: "2 月初的大阪清晨只有 5 度，窗外冷風颼颼，但今天原定要一早衝去木津卸賣市場吃排隊海鮮丼與白草莓⋯⋯",
+    scene: "2 月初的大阪清晨只有 5 度，窗外冷颼颼，但今天原定要一早衝去木津卸賣市場吃排隊海鮮丼⋯",
     placeholder: "輸入你的真實應對⋯⋯",
     advice: "這半天直接分頭走，友情比較保險。",
     options: {
-      A: { tag: "特種兵／保母", short: "07:00 衝市場", text: "07:00 準時掀被子出發！頂著寒風也要搶第一輪入座吃海膽！", w: { soldier: 3, nanny: 2 }, d: { food: 3, hustle: 3 } },
+      A: { tag: "特種兵／保母", short: "07:00 衝市場", text: "07:00 準時掀被子出發！頂著寒風也要入座吃海膽！", w: { soldier: 3, nanny: 2 }, d: { food: 3, hustle: 3 } },
       B: { tag: "慢活水豚／佛系", short: "賴床到 10 點", text: "鑽回被窩賴床到 10 點，樓下超商買個熱包子和熱咖啡解決。", w: { capybara: 3 }, d: { chill: 3, food: 1 } },
-      C: { tag: "計程車／精算師", short: "叫 Uber 直達", text: "拒絕在寒風中走路吹風，立刻開 App 叫 Uber 直達市場門口。", w: { taxi: 3, accountant: 2 }, d: { food: 2, chill: 1 } },
+      C: { tag: "計程車／精算師", short: "叫 Uber 直達", text: "拒絕在寒風中走路吹風，立刻叫 Uber 直達市場門口。", w: { taxi: 3, accountant: 2 }, d: { food: 2, chill: 1 } },
     },
   },
   {
     id: 2, node: 1, title: "USJ 的分歧考驗", subtitle: "整理券只剩下午極少時段", clock: "10:30 上午",
-    scene: "全隊抵達 USJ，入園才發現「超級任天堂世界」整理券只剩下午極少時段，且園區人潮滿患——所有人同時掏出手機⋯⋯",
-    placeholder: "輸入你的遊園大招⋯⋯",
+    scene: "全隊抵達 USJ，入園才發現「超級任天堂世界」整理券只剩下午極少時段，且園區人潮滿患。所有人同時掏出手機⋯⋯",
+    placeholder: "輸入你的遊園大招⋯",
     advice: "USJ 這 3 小時建議分流，晚點再約集合時間。",
     options: {
-      A: { tag: "特種兵／打卡機", short: "狂刷搶整理券", text: "狂刷 App 搶整理券與 Fast Pass，接著直衝哈利波特城堡拍冬季雪景！", w: { soldier: 3, camera: 2 }, d: { hustle: 3, photo: 2 }, needNet: true },
+      A: { tag: "特種兵／打卡機", short: "狂刷搶整理券", text: "狂刷 App 搶整理券與 Fast Pass，接著直衝哈利波特城堡拍雪景！", w: { soldier: 3, camera: 2 }, d: { hustle: 3, photo: 2 }, needNet: true },
       B: { tag: "暴走購物狂", short: "商店掃貨", text: "既然設施要排 120 分鐘，直接殺進商店把瑪利歐星星爆米花桶買齊！", w: { shopper: 3 }, d: { shop: 3 } },
       C: { tag: "City Walk 探險家", short: "漫步看巡演", text: "放棄排隊，買杯熱奶油啤酒在園區街道漫步、看巡演。", w: { explorer: 3, capybara: 1 }, d: { explore: 2, chill: 1, food: 1 } },
     },
@@ -231,11 +231,11 @@ const ROUNDS = [
   {
     id: 3, node: 2, title: "道頓堀晚餐攻防", subtitle: "預算與食慾的正面對決", clock: "18:00 傍晚",
     scene: "細雨中的道頓堀，霓虹全開、香味四溢。名店門口排著長龍，隔壁巷子也飄出醬香，大家的肚子同時叫了⋯⋯",
-    placeholder: "輸入你的晚餐方案⋯⋯",
+    placeholder: "輸入你的晚餐方案⋯",
     advice: "晚餐可以各吃各的，甜點再會合。",
     options: {
-      A: { tag: "名店奢華／打卡機", short: "蟹道樂全席", text: "衝蟹道樂本店螃蟹全席，配黑門和牛串——來都來了，一人約 NT$2,500。", w: { camera: 2, shopper: 2 }, d: { food: 3, photo: 1 }, price: 2500 },
-      B: { tag: "CP 值精算／探險家", short: "巷弄大阪燒", text: "打開 Tabelog 找隔壁巷子 3.6 分的隱藏版大阪燒＋章魚燒，一人約 NT$600。", w: { accountant: 3, explorer: 2 }, d: { food: 3, explore: 1 }, price: 600 },
+      A: { tag: "名店奢華／打卡機", short: "蟹道樂全席", text: "衝蟹道樂本店螃蟹全席，配黑門和牛串！來都來了，一人約 NT$2,500。", w: { camera: 2, shopper: 2 }, d: { food: 3, photo: 1 }, price: 2500 },
+      B: { tag: "CP 值精算／探險家", short: "巷弄大阪燒", text: "打開 Tabelog 找隔壁巷子 4.5 分的隱藏版大阪燒＋章魚燒，一人約 NT$600。", w: { accountant: 3, explorer: 2 }, d: { food: 3, explore: 1 }, price: 600 },
       C: { tag: "慢活／計程車", short: "超商回飯店", text: "腳快斷了，超商買熱食和罐裝啤酒，回飯店邊泡腳邊吃，一人約 NT$300。", w: { capybara: 3, taxi: 2 }, d: { chill: 3, food: 1 }, price: 300 },
     },
   },
@@ -246,7 +246,7 @@ const ROUNDS = [
     advice: "今晚分頭逛，回飯店再開戰利品發表會。",
     options: {
       A: { tag: "原地分流自由行", short: "原地分流", text: "時間不夠了！原地解散分頭逛 2 小時，靠網路傳比價與照片，晚上飯店集合。", w: { shopper: 2, explorer: 2, camera: 1, soldier: 1 }, d: { shop: 2, explore: 2 }, needNet: true },
-      B: { tag: "全員抱團行動", short: "全員抱團", text: "天冷迷路很麻煩！大家緊緊跟在一起，一間一間陪著逛到底。", w: { nanny: 3, soldier: 1 }, d: { shop: 1, hustle: 1 } },
+      B: { tag: "全員抱團行動", short: "全員抱團", text: "天冷迷路很麻煩！大家緊緊跟在一起，逛到底。", w: { nanny: 3, soldier: 1 }, d: { shop: 1, hustle: 1 } },
       C: { tag: "定點駐紮避難", short: "星巴克駐紮", text: "我完全走不動了，你們去逛，我找一間星巴克坐著等你們來領我。", w: { capybara: 2, taxi: 2 }, d: { chill: 3 } },
     },
   },
@@ -421,7 +421,7 @@ function buildHint(roundIdx, results, ctx) {
 
   if (active.length >= 2 && letters.size === 1 && !letters.has("D")) {
     headline = `😳 驚人共識：全隊都選「${shortOf(roundIdx, active[0])}」`;
-    sub = "連 GM 都愣住了，這種默契可以直接組戰隊出道。";
+    sub = "連 TripMate 都愣住了，你們可以直接組戰隊出道了。";
   } else {
     let worst = null;
     for (let i = 0; i < active.length; i += 1) {
@@ -441,7 +441,7 @@ function buildHint(roundIdx, results, ctx) {
 
   const rows = [];
   if (roundIdx === 1 && ctx.lagged) {
-    rows.push({ tone: "warn", text: "📶 順帶一提：你剛剛在 USJ 轉圈圈的那幾秒，整理券已經被別人搶完了。" });
+    rows.push({ tone: "warn", text: "📶 你剛剛在 USJ 轉圈圈的那幾秒，整理券已經被別人搶完了。" });
   }
   if (roundIdx === 2) {
     const fb = budgetFeedback(ctx.budget, results);
@@ -952,8 +952,8 @@ function SetupScreen({ onStart, toast }) {
               <div className="mx-auto mt-1 w-fit">
                 <Mascot persona={seedPersona} size={150} bg={false} />
               </div>
-              <h1 className="tm-display text-[30px] leading-tight">3 題，先看看你是哪種旅人</h1>
-              <p className="mt-1 text-sm opacity-70">答完就會拿到你的去趣造型稱號，正式遊戲再微調。</p>
+              <h1 className="tm-display text-[30px] leading-tight">測測你是哪種旅人</h1>
+              <p className="mt-1 text-sm opacity-70">答完就會拿到你的去趣專屬造型，正式遊戲再微調。</p>
             </Card>
 
             <Card className="space-y-3 p-4">
@@ -1016,7 +1016,7 @@ function SetupScreen({ onStart, toast }) {
                           </Btn>
                         </div>
                         <p className="mt-2 text-xs leading-relaxed opacity-70">
-                          去趣 eSIM 全館 85 折，每日流量型每天 {money(22)} 起。現在先收著就好——等行程排完，我們會照你們實際的行程算出適合的方案與電信商，這組碼會自動帶入。
+                          去趣 eSIM 全館 85 折，每日流量型每天 {money(22)} 起。現在先收著就好，等行程排完，我們會照實際的行程算出適合的方案，代碼也會自動帶入。
                         </p>
                       </div>
                     </Card>
@@ -1037,7 +1037,7 @@ function SetupScreen({ onStart, toast }) {
             <Card className="p-4">
               <Chip><Wallet size={13} /> Step 2／3　預算錨定</Chip>
               <h2 className="tm-display mt-2 text-2xl">這趟大阪，你的預算級別？</h2>
-              <p className="text-xs opacity-60">整趟行程（不含機票）。遊戲中的晚餐題會依這個級別給你即時反饋。</p>
+              <p className="text-xs opacity-60">整趟行程（不含機票）。遊戲中的晚餐題會給你即時反饋。</p>
               <div className="mt-3 space-y-2">
                 {BUDGETS.map((b) => (
                   <motion.button
@@ -1063,7 +1063,7 @@ function SetupScreen({ onStart, toast }) {
             <Card className="p-4">
               <Chip><Wifi size={13} /> 行前網路方案</Chip>
               <h2 className="tm-display mt-2 text-2xl">在日本你打算怎麼上網？</h2>
-              <p className="text-xs opacity-60">這個選擇會真的影響遊戲過程，選到會卡的方案就是會卡。一天差幾十塊，體驗差很多。</p>
+              <p className="text-xs opacity-60">選擇會真的影響遊戲過程，會卡的方案就是會卡。</p>
               <div className="mt-3 space-y-2">
                 {NETWORKS.map((n) => (
                   <motion.button
@@ -1461,7 +1461,7 @@ function LagModal({ network, onDone }) {
             人潮擁擠的園區裡，共用熱點和漫遊降速都會變成這樣。這 6 秒就是別人搶到整理券的時間。
           </p>
           <Btn className="mt-4 w-full" disabled={!last} onClick={() => doneRef.current()}>
-            {last ? <><WifiOff size={18} /> 好吧⋯⋯繼續遊戲</> : "連線中，請稍候"}
+            {last ? <><WifiOff size={18} /> 好吧⋯繼續遊戲</> : "連線中，請稍候"}
           </Btn>
         </Card>
       </motion.div>
@@ -1513,7 +1513,7 @@ function HintModal({ roundIdx, results, hint, onClose }) {
           <div className="flex items-center gap-2">
             <div className="grid h-9 w-9 place-items-center rounded-full border-[3px] border-[#1F2350] bg-[#FFC93C]"><Radio size={16} /></div>
             <div>
-              <div className="text-sm font-black">去趣 GM・大提示</div>
+              <div className="text-sm font-black">去趣 TripMate・大提示</div>
               <div className="text-[11px] opacity-60">第 {roundIdx + 1} 站　{ROUNDS[roundIdx].title}</div>
             </div>
           </div>
@@ -1808,7 +1808,7 @@ function PersonaCard({ member, seedPersona }) {
           ))}
         </div>
         <div className="rounded-2xl bg-[#FFF3A6] p-3 text-sm leading-relaxed">
-          <span className="font-black">GM 短評：</span>{fill(P.roast, { name: "你" })}
+          <span className="font-black">TripMate 短評：</span>{fill(P.roast, { name: "你" })}
         </div>
       </div>
     </Card>
@@ -1827,7 +1827,7 @@ function StickyNote({ groups }) {
       <div className="mb-1 text-lg font-bold">去趣小提醒 ✏️</div>
       <p>
         ～提醒你們一下！2 月初的大阪晚間只有 4 度左右，
-        {groups > 1 ? `而且你們今晚會分成 ${groups} 組在心齋橋分頭逛街，` : "就算大家想抱團行動，人潮一多還是很容易走散，"}
+        {groups > 1 ? `而且你們今晚會分成 ${groups} 組在心齋橋分頭逛街，` : "就算大家想團體行動，人潮一多還是很容易走散，"}
         心齋橋地下街迷宮訊號容易不穩，記得手機保持暢通才找得到彼此喔！
       </p>
       <div className="mt-2 text-right">— 去趣 🧡</div>
