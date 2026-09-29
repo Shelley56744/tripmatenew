@@ -156,7 +156,7 @@ const QUIZ = [
   {
     id: "q1", ask: "在超好看的景點前，你的第一個動作是？",
     a: { key: "photo", icon: "📸", label: "先拍！出片率最重要", sub: "機位、光線、角度我來喬" },
-    b: { key: "deep", icon: "🧭", label: "先走進去，體驗最重要", sub: "照片之後再說，先聞聞味道" },
+    b: { key: "deep", icon: "🧭", label: "先走進去，體驗最重要", sub: "照片之後再說，先享受" },
   },
   {
     id: "q2", ask: "旅途中的早晨，你通常？",
@@ -210,7 +210,7 @@ const ROUNDS = [
     id: 1, node: 0, title: "晨間集合", subtitle: "大阪冬晨的起床考驗", clock: "07:00 清晨",
     scene: "2 月初的大阪清晨只有 5 度，窗外冷颼颼，但今天原定要一早衝去木津卸賣市場吃排隊海鮮丼⋯",
     placeholder: "輸入你的真實應對⋯⋯",
-    advice: "這半天直接分頭走，友情比較保險。",
+    advice: "這半天直接分頭走，比較不會吵架。",
     options: {
       A: { tag: "特種兵／保母", short: "07:00 衝市場", text: "07:00 準時掀被子出發！頂著寒風也要入座吃海膽！", w: { soldier: 3, nanny: 2 }, d: { food: 3, hustle: 3 } },
       B: { tag: "慢活水豚／佛系", short: "賴床到 10 點", text: "鑽回被窩賴床到 10 點，樓下超商買個熱包子和熱咖啡解決。", w: { capybara: 3 }, d: { chill: 3, food: 1 } },
@@ -223,16 +223,16 @@ const ROUNDS = [
     placeholder: "輸入你的遊園大招⋯",
     advice: "USJ 這 3 小時建議分流，晚點再約集合時間。",
     options: {
-      A: { tag: "特種兵／打卡機", short: "狂刷搶整理券", text: "狂刷 App 搶整理券與 Fast Pass，接著直衝哈利波特城堡拍雪景！", w: { soldier: 3, camera: 2 }, d: { hustle: 3, photo: 2 }, needNet: true },
-      B: { tag: "暴走購物狂", short: "商店掃貨", text: "既然設施要排 120 分鐘，直接殺進商店把瑪利歐星星爆米花桶買齊！", w: { shopper: 3 }, d: { shop: 3 } },
-      C: { tag: "City Walk 探險家", short: "漫步看巡演", text: "放棄排隊，買杯熱奶油啤酒在園區街道漫步、看巡演。", w: { explorer: 3, capybara: 1 }, d: { explore: 2, chill: 1, food: 1 } },
+      A: { tag: "特種兵／打卡機", short: "狂刷搶整理券", text: "狂刷 App 搶整理券與 Fast Pass，接著直衝哈利波特城堡！", w: { soldier: 3, camera: 2 }, d: { hustle: 3, photo: 2 }, needNet: true },
+      B: { tag: "暴走購物狂", short: "商店掃貨", text: "既然設施要排 120 分鐘，直接殺進商店買瑪利歐星星爆米花桶！", w: { shopper: 3 }, d: { shop: 3 } },
+      C: { tag: "City Walk 探險家", short: "漫步看巡演", text: "放棄排隊，買杯奶油啤酒在園區街道漫步、看巡演。", w: { explorer: 3, capybara: 1 }, d: { explore: 2, chill: 1, food: 1 } },
     },
   },
   {
     id: 3, node: 2, title: "道頓堀晚餐攻防", subtitle: "預算與食慾的正面對決", clock: "18:00 傍晚",
-    scene: "細雨中的道頓堀，霓虹全開、香味四溢。名店門口排著長龍，隔壁巷子也飄出醬香，大家的肚子同時叫了⋯⋯",
+    scene: "細雨中的道頓堀，霓虹全開、香味四溢。名店門口排著長龍，隔壁巷子也飄出香味，大家的肚子同時叫了⋯",
     placeholder: "輸入你的晚餐方案⋯",
-    advice: "晚餐可以各吃各的，甜點再會合。",
+    advice: "晚餐可以各吃各的，之後再會合。",
     options: {
       A: { tag: "名店奢華／打卡機", short: "蟹道樂全席", text: "衝蟹道樂本店螃蟹全席，配黑門和牛串！來都來了，一人約 NT$2,500。", w: { camera: 2, shopper: 2 }, d: { food: 3, photo: 1 }, price: 2500 },
       B: { tag: "CP 值精算／探險家", short: "巷弄大阪燒", text: "打開 Tabelog 找隔壁巷子 4.5 分的隱藏版大阪燒＋章魚燒，一人約 NT$600。", w: { accountant: 3, explorer: 2 }, d: { food: 3, explore: 1 }, price: 600 },
@@ -241,13 +241,13 @@ const ROUNDS = [
   },
   {
     id: 4, node: 3, title: "心齋橋分流行動", subtitle: "20:30 打烊前的最後衝刺", clock: "18:30 夜晚",
-    scene: "夜幕降臨心齋橋筋商店街，藥妝店、Bic Camera 與古著店分散在不同街區，而店鋪即將在 20:30 打烊⋯⋯",
+    scene: "夜幕降臨心齋橋筋商店街，藥妝店、Bic Camera 與古著店分散在不同街區，而店鋪即將在 20:30 打烊⋯",
     placeholder: "輸入你的最後衝刺方式⋯⋯",
     advice: "今晚分頭逛，回飯店再開戰利品發表會。",
     options: {
-      A: { tag: "原地分流自由行", short: "原地分流", text: "時間不夠了！原地解散分頭逛 2 小時，靠網路傳比價與照片，晚上飯店集合。", w: { shopper: 2, explorer: 2, camera: 1, soldier: 1 }, d: { shop: 2, explore: 2 }, needNet: true },
+      A: { tag: "原地分流自由行", short: "原地分流", text: "時間不夠了！原地解散分頭逛 2 小時，晚上飯店集合。", w: { shopper: 2, explorer: 2, camera: 1, soldier: 1 }, d: { shop: 2, explore: 2 }, needNet: true },
       B: { tag: "全員抱團行動", short: "全員抱團", text: "天冷迷路很麻煩！大家緊緊跟在一起，逛到底。", w: { nanny: 3, soldier: 1 }, d: { shop: 1, hustle: 1 } },
-      C: { tag: "定點駐紮避難", short: "星巴克駐紮", text: "我完全走不動了，你們去逛，我找一間星巴克坐著等你們來領我。", w: { capybara: 2, taxi: 2 }, d: { chill: 3 } },
+      C: { tag: "定點駐紮避難", short: "星巴克駐紮", text: "完全走不動了，你們先逛，我找一間星巴克坐著等你們來領我。", w: { capybara: 2, taxi: 2 }, d: { chill: 3 } },
     },
   },
 ];
@@ -400,7 +400,7 @@ function budgetFeedback(budgetKey, results) {
   const price = ROUNDS[2].options[me.choice].price;
   const b = BUDGETS.find((x) => x.key === budgetKey) || BUDGETS[1];
   if (b.key === "thrifty" && price > b.mealCap) {
-    return { tone: "warn", text: "⚠️ 預算警報！你的荷包正在向你的胃發出抗議！", sub: `一餐 ${money(price)}，但你設定的是「${b.name}（${b.range}）」——這一口螃蟹大概等於明天的交通費。` };
+    return { tone: "warn", text: "⚠️ 預算警報！你的荷包正在發出抗議！", sub: `一餐 ${money(price)}，但你設定的是「${b.name}（${b.range}）」——這一口螃蟹大概等於明天的交通費。` };
   }
   if (b.key === "standard" && price > b.mealCap) {
     return { tone: "warn", text: "🤔 小小超支，但道頓堀值得", sub: `一餐 ${money(price)} 超出「${b.name}」的日常餐標，明天午餐吃串炸平衡一下就好。` };
@@ -515,10 +515,10 @@ function analyzeTeam(players, history, seeds, days = 5) {
   const prefs = DIMS.map((d) => ({ ...d, pct: Math.round((teamDims[d.key] / dimTotal) * 100) })).sort((x, y) => y.pct - x.pct);
 
   const vi = vibe >= 80
-    ? { emoji: "💞", label: "靈魂同步戰隊", desc: "節奏超合拍，同樂時段可以放心排滿。" }
+    ? { emoji: "💞", label: "靈魂同步戰隊", desc: "節奏超合拍。" }
     : vibe >= 60
-      ? { emoji: "🧩", label: "互補型冒險團", desc: "偏好有落差但剛好互補，適度分流玩得更盡興。" }
-      : { emoji: "🌪️", label: "分流保友情團", desc: "節奏落差明顯，排好分流時段是維持友情的關鍵。" };
+      ? { emoji: "🧩", label: "互補型冒險團", desc: "偏好剛好互補，適度分流更盡興。" }
+      : { emoji: "🌪️", label: "分流保友情團", desc: "節奏落差明顯，排好分流時段是關鍵。" };
 
   return {
     members,
@@ -2009,7 +2009,7 @@ function SummaryScreen({ session, history, analysis, onRestart, onPlan, toast })
               <div className="min-w-0 flex-1">
                 <div className="tm-display text-xl leading-tight">接下來，一起把行程排出來</div>
                 <p className="mt-1 text-sm leading-relaxed">
-                  AI 會依你的人格與偏好推薦大阪景點，右滑存進行程、左滑跳過。存檔後全隊看到的是同一份，誰改了什麼都會即時同步。
+                  AI 會依你的人格與偏好推薦大阪景點，右滑存行程、左滑跳過。存檔後全隊看到的是同一份，誰改了什麼都會即時同步。
                 </p>
               </div>
             </div>
@@ -3480,7 +3480,7 @@ function renderItineraryImage({ session, board, analysis }) {
   ctx.fillText(`去趣 eSIM 優惠碼　${session.coupon || "QU-XXXX"}　全館 85 折`, PAD + 32, y + 52);
   ctx.font = `700 24px ${FONT}`;
   ctx.fillStyle = "rgba(31,35,80,.7)";
-  const foot = wrapText(ctx, "出發前記得開通 eSIM，分頭行動時才找得到彼此。", W - PAD * 2 - 64);
+  const foot = wrapText(ctx, "出發前開通 eSIM，分頭行動時才找得到彼此。", W - PAD * 2 - 64);
   foot.forEach((ln, i) => ctx.fillText(ln, PAD + 32, y + 96 + i * 32));
 
   return canvas.toDataURL("image/png");
