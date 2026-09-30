@@ -17,6 +17,7 @@ import {
   ChevronLeft, Plus, Minus, Signal, Loader, MapPin, Wallet,
   Heart, Trash2, Clock, RefreshCw, LogIn, CalendarDays,
   Ticket, Download, ImageDown, Gauge, Rocket, Lock, Unlock,
+  Volume2, VolumeX, Music,
 } from "lucide-react";
 
 /* ==================================================================
@@ -50,6 +51,288 @@ const DESTINATIONS = [
 const tripLabel = (d) => `${d} 天 ${d - 1} 夜`;
 const fmtDate = (d) => (d || "").split("-").join("/");
 const SHARE_BASE = "https://tripmate.example/r/";
+
+/* ==================================================================
+ * 0.5 音效引擎（Web Audio 即時合成，不載入任何音檔）
+ * ------------------------------------------------------------------
+ * 全部用振盪器合成，所以不需要 mp3、沒有授權問題、打包後也不會變大。
+ * AudioContext 只能在使用者手勢之後啟動，所以一律 lazy init。
+ * ================================================================== */
+const AudioEngine = (() => {
+  const AC = typeof window !== "undefined" ? (window.AudioContext || window.webkitAudioContext) : null;
+  let ctx = null;
+  let sfxBus = null;
+  let musicBus = null;
+  let sfxOn = true;
+  let bgmOn = false;
+  let timer = null;
+  let step = 0;
+  let nextAt = 0;
+
+  function ensure() {
+    if (!AC) return null;
+    if (!ctx) {
+      try {
+        ctx = new AC();
+      } catch {
+        return null;
+      }
+      sfxBus = ctx.createGain();
+      sfxBus.gain.value = 0.5;
+      sfxBus.connect(ctx.destination);
+      musicBus = ctx.createGain();
+      musicBus.gain.value = 0;
+      musicBus.connect(ctx.destination);
+    }
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    return ctx;
+  }
+
+  /* ---------- 合成基本單元 ---------- */
+  function tone(bus, { f, to, type = "sine", dur = 0.12, vol = 0.3, at = 0 }) {
+    const c = ctx;
+    if (!c || !bus) return;
+    const t = c.currentTime + at;
+    const osc = c.createOscillator();
+    const g = c.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(f, t);
+    if (to) osc.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + dur * 0.9);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g);
+    g.connect(bus);
+    osc.start(t);
+    osc.stop(t + dur + 0.04);
+  }
+
+  function noise(bus, { dur = 0.22, vol = 0.14, from = 1800, to = 500, at = 0 }) {
+    const c = ctx;
+    if (!c || !bus) return;
+    const t = c.currentTime + at;
+    const len = Math.max(1, Math.floor(c.sampleRate * dur));
+    const buf = c.createBuffer(1, len, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i += 1) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    const bp = c.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = 0.9;
+    bp.frequency.setValueAtTime(from, t);
+    bp.frequency.exponentialRampToValueAtTime(Math.max(60, to), t + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(bus);
+    src.start(t);
+    src.stop(t + dur + 0.02);
+  }
+
+  /* ---------- 音效表 ---------- */
+  const RECIPES = {
+    // 一般點擊：短、鈍、不刺耳，連點也不會吵
+    tap: (b) => tone(b, { f: 520, to: 430, type: "triangle", dur: 0.06, vol: 0.16 }),
+    // 選項命中：兩段上行的小方波，像選單游標
+    select: (b) => {
+      tone(b, { f: 620, type: "square", dur: 0.05, vol: 0.09 });
+      tone(b, { f: 930, type: "square", dur: 0.08, vol: 0.075, at: 0.045 });
+    },
+    back: (b) => {
+      tone(b, { f: 480, type: "triangle", dur: 0.06, vol: 0.12 });
+      tone(b, { f: 330, type: "triangle", dur: 0.09, vol: 0.1, at: 0.05 });
+    },
+    // 卡片彈出
+    pop: (b) => tone(b, { f: 700, to: 1050, type: "sine", dur: 0.11, vol: 0.16 }),
+    // 轉場風切
+    swoosh: (b) => {
+      noise(b, { dur: 0.38, vol: 0.13, from: 2600, to: 420 });
+      tone(b, { f: 300, to: 620, type: "sine", dur: 0.3, vol: 0.09, at: 0.04 });
+    },
+    // 抵達新站
+    arrive: (b) => {
+      [523.25, 659.25, 783.99].forEach((f, i) => tone(b, { f, type: "triangle", dur: 0.26, vol: 0.13, at: i * 0.075 }));
+      tone(b, { f: 1046.5, type: "sine", dur: 0.4, vol: 0.09, at: 0.23 });
+    },
+    // 右滑收藏
+    like: (b) => {
+      tone(b, { f: 660, to: 990, type: "sine", dur: 0.13, vol: 0.15 });
+      tone(b, { f: 1320, type: "sine", dur: 0.16, vol: 0.07, at: 0.1 });
+    },
+    // 左滑略過
+    nope: (b) => {
+      noise(b, { dur: 0.16, vol: 0.08, from: 900, to: 260 });
+      tone(b, { f: 300, to: 190, type: "triangle", dur: 0.14, vol: 0.1 });
+    },
+    // 結果揭曉
+    success: (b) => {
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(b, { f, type: "triangle", dur: 0.3, vol: 0.14, at: i * 0.09 }));
+    },
+    // 大成就（購買完成、人格揭曉）
+    fanfare: (b) => {
+      [392, 523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(b, { f, type: "square", dur: 0.26, vol: 0.09, at: i * 0.085 }));
+      [392, 523.25, 783.99].forEach((f) => tone(b, { f: f / 2, type: "sine", dur: 0.7, vol: 0.1, at: 0.42 }));
+    },
+    // 折扣碼 / 金幣
+    coin: (b) => {
+      tone(b, { f: 988, type: "square", dur: 0.07, vol: 0.1 });
+      tone(b, { f: 1319, type: "square", dur: 0.3, vol: 0.09, at: 0.06 });
+    },
+    // 定版：厚實的一聲
+    lock: (b) => {
+      tone(b, { f: 180, to: 90, type: "square", dur: 0.16, vol: 0.18 });
+      noise(b, { dur: 0.12, vol: 0.1, from: 600, to: 180, at: 0.02 });
+    },
+    unlock: (b) => {
+      tone(b, { f: 240, to: 420, type: "square", dur: 0.15, vol: 0.13 });
+    },
+    // AI 提醒 / 排不下
+    warn: (b) => {
+      tone(b, { f: 440, type: "square", dur: 0.11, vol: 0.09 });
+      tone(b, { f: 330, type: "square", dur: 0.18, vol: 0.09, at: 0.12 });
+    },
+  };
+
+  /* ---------- 背景音樂：4 小節循環，F – C – Dm – B♭ ---------- */
+  const hz = (m) => 440 * (2 ** ((m - 69) / 12));
+  const CHORDS = [
+    { pad: [65, 69, 72], bass: 41 }, // F
+    { pad: [64, 67, 72], bass: 36 }, // C
+    { pad: [65, 69, 74], bass: 38 }, // Dm
+    { pad: [65, 70, 74], bass: 34 }, // B♭
+  ];
+  // 每小節 8 個八分音符，只在 0/2/4/6 放旋律，留白才不會聽膩
+  const LEAD = [
+    [69, null, 72, null, 74, null, 72, null],
+    [67, null, 72, null, 76, null, 72, null],
+    [69, null, 74, null, 77, null, 74, null],
+    [70, null, 74, null, 72, null, 69, null],
+  ];
+  const STEP = 0.357; // ≈ 84 BPM 的八分音符
+
+  function playStep(i, t) {
+    const c = ctx;
+    if (!c || !musicBus) return;
+    const bar = Math.floor(i / 8) % 4;
+    const beat = i % 8;
+    const pass = Math.floor(i / 32);
+    const chord = CHORDS[bar];
+
+    const soft = (f, dur, vol) => {
+      const osc = c.createOscillator();
+      const g = c.createGain();
+      const lp = c.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 1500;
+      osc.type = "sine";
+      osc.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.35);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      osc.connect(lp);
+      lp.connect(g);
+      g.connect(musicBus);
+      osc.start(t);
+      osc.stop(t + dur + 0.05);
+    };
+
+    if (beat === 0) chord.pad.forEach((m) => soft(hz(m), STEP * 7.4, 0.055));
+    if (beat === 0 || beat === 4) {
+      const osc = c.createOscillator();
+      const g = c.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = hz(chord.bass);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.11, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + STEP * 1.6);
+      osc.connect(g);
+      g.connect(musicBus);
+      osc.start(t);
+      osc.stop(t + STEP * 1.7);
+    }
+    // 每隔一輪把旋律拿掉一半，聽起來像有呼吸
+    const note = LEAD[bar][beat];
+    if (note && !(pass % 2 === 1 && beat === 6)) {
+      const osc = c.createOscillator();
+      const g = c.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = hz(note + (pass % 4 === 3 ? 12 : 0));
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.075, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + STEP * 1.3);
+      osc.connect(g);
+      g.connect(musicBus);
+      osc.start(t);
+      osc.stop(t + STEP * 1.4);
+    }
+  }
+
+  function tick() {
+    const c = ensure();
+    if (!c) return;
+    while (nextAt < c.currentTime + 0.4) {
+      if (nextAt < c.currentTime) nextAt = c.currentTime + 0.05;
+      playStep(step, nextAt);
+      nextAt += STEP;
+      step += 1;
+    }
+  }
+
+  function startMusic() {
+    const c = ensure();
+    if (!c || timer) return;
+    nextAt = c.currentTime + 0.1;
+    musicBus.gain.cancelScheduledValues(c.currentTime);
+    musicBus.gain.setValueAtTime(0.0001, c.currentTime);
+    musicBus.gain.exponentialRampToValueAtTime(0.5, c.currentTime + 2);
+    tick();
+    timer = setInterval(tick, 120);
+  }
+
+  function stopMusic() {
+    if (ctx && musicBus) {
+      musicBus.gain.cancelScheduledValues(ctx.currentTime);
+      musicBus.gain.setValueAtTime(musicBus.gain.value, ctx.currentTime);
+      musicBus.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
+    }
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  }
+
+  return {
+    play(name) {
+      if (!sfxOn) return;
+      const c = ensure();
+      if (!c) return;
+      (RECIPES[name] || RECIPES.tap)(sfxBus);
+    },
+    setSfx(on) {
+      sfxOn = on;
+      if (on) {
+        ensure();
+        (RECIPES.pop)(sfxBus);
+      }
+    },
+    setBgm(on) {
+      bgmOn = on;
+      if (on) startMusic();
+      else stopMusic();
+    },
+    // 進到遊戲畫面時，如果使用者已經開了音樂就接著播
+    resume() {
+      if (bgmOn) startMusic();
+    },
+    get sfxOn() { return sfxOn; },
+    get bgmOn() { return bgmOn; },
+  };
+})();
+
+const sfx = (name) => AudioEngine.play(name);
 
 /* ==================================================================
  * 1. 8 大旅遊人格 · 偏好維度 · 關鍵字判定
@@ -154,17 +437,17 @@ const KEYWORD_RULES = {
  * ================================================================== */
 const QUIZ = [
   {
-    id: "q1", ask: "在超好看的景點前，你的第一個動作是？",
+    id: "q1", ask: "在超好看的街景前，你的第一個動作是？",
     a: { key: "photo", icon: "📸", label: "先拍！出片率最重要", sub: "機位、光線、角度我來喬" },
-    b: { key: "deep", icon: "🧭", label: "先走進去，體驗最重要", sub: "照片之後再說，先享受" },
+    b: { key: "deep", icon: "🧭", label: "先走進去，體驗最重要", sub: "照片之後再說，先聞聞味道" },
   },
   {
-    id: "q2", ask: "旅途中的早晨，你通常？",
+    id: "q2", ask: "旅途中的早晨，你通常是？",
     a: { key: "early", icon: "⏰", label: "07:00 起床衝第一攤", sub: "早餐是行程的一部分" },
     b: { key: "late", icon: "🛏️", label: "睡到自然醒才有靈魂", sub: "中午出門也是一種節奏" },
   },
   {
-    id: "q3", ask: "出發前的行程表，你怎麼排？",
+    id: "q3", ask: "出發前的行程表，你的版本是？",
     a: { key: "plan", icon: "📊", label: "Excel 排到分鐘，附備案", sub: "雨天備案、交通轉乘都寫好" },
     b: { key: "free", icon: "🍃", label: "到了再說，隨興隨緣", sub: "只訂機票飯店，其他看心情" },
   },
@@ -208,46 +491,46 @@ const MAP_NODES = [
 const ROUNDS = [
   {
     id: 1, node: 0, title: "晨間集合", subtitle: "大阪冬晨的起床考驗", clock: "07:00 清晨",
-    scene: "2 月初的大阪清晨只有 5 度，窗外冷颼颼，但今天原定要一早衝去木津卸賣市場吃排隊海鮮丼⋯",
+    scene: "2 月初的大阪清晨只有 5 度，窗外冷風颼颼，但今天原定要一早衝去木津卸賣市場吃排隊海鮮丼與白草莓⋯⋯",
     placeholder: "輸入你的真實應對⋯⋯",
-    advice: "這半天直接分頭走，比較不會吵架。",
+    advice: "這半天直接分頭走，友情比較保險。",
     options: {
-      A: { tag: "特種兵／保母", short: "07:00 衝市場", text: "07:00 準時掀被子出發！頂著寒風也要入座吃海膽！", w: { soldier: 3, nanny: 2 }, d: { food: 3, hustle: 3 } },
+      A: { tag: "特種兵／保母", short: "07:00 衝市場", text: "07:00 準時掀被子出發！頂著寒風也要搶第一輪入座吃海膽！", w: { soldier: 3, nanny: 2 }, d: { food: 3, hustle: 3 } },
       B: { tag: "慢活水豚／佛系", short: "賴床到 10 點", text: "鑽回被窩賴床到 10 點，樓下超商買個熱包子和熱咖啡解決。", w: { capybara: 3 }, d: { chill: 3, food: 1 } },
-      C: { tag: "計程車／精算師", short: "叫 Uber 直達", text: "拒絕在寒風中走路吹風，立刻叫 Uber 直達市場門口。", w: { taxi: 3, accountant: 2 }, d: { food: 2, chill: 1 } },
+      C: { tag: "計程車／精算師", short: "叫 Uber 直達", text: "拒絕在寒風中走路吹風，立刻開 App 叫 Uber 直達市場門口。", w: { taxi: 3, accountant: 2 }, d: { food: 2, chill: 1 } },
     },
   },
   {
     id: 2, node: 1, title: "USJ 的分歧考驗", subtitle: "整理券只剩下午極少時段", clock: "10:30 上午",
-    scene: "全隊抵達 USJ，入園才發現「超級任天堂世界」整理券只剩下午極少時段，且園區人潮滿患。所有人同時掏出手機⋯⋯",
-    placeholder: "輸入你的遊園大招⋯",
+    scene: "全隊抵達 USJ，入園才發現「超級任天堂世界」整理券只剩下午極少時段，且園區人潮滿患——所有人同時掏出手機⋯⋯",
+    placeholder: "輸入你的遊園大招⋯⋯",
     advice: "USJ 這 3 小時建議分流，晚點再約集合時間。",
     options: {
-      A: { tag: "特種兵／打卡機", short: "狂刷搶整理券", text: "狂刷 App 搶整理券與 Fast Pass，接著直衝哈利波特城堡！", w: { soldier: 3, camera: 2 }, d: { hustle: 3, photo: 2 }, needNet: true },
-      B: { tag: "暴走購物狂", short: "商店掃貨", text: "既然設施要排 120 分鐘，直接殺進商店買瑪利歐星星爆米花桶！", w: { shopper: 3 }, d: { shop: 3 } },
-      C: { tag: "City Walk 探險家", short: "漫步看巡演", text: "放棄排隊，買杯奶油啤酒在園區街道漫步、看巡演。", w: { explorer: 3, capybara: 1 }, d: { explore: 2, chill: 1, food: 1 } },
+      A: { tag: "特種兵／打卡機", short: "狂刷搶整理券", text: "狂刷 App 搶整理券與 Fast Pass，接著直衝哈利波特城堡拍冬季雪景！", w: { soldier: 3, camera: 2 }, d: { hustle: 3, photo: 2 }, needNet: true },
+      B: { tag: "暴走購物狂", short: "商店掃貨", text: "既然設施要排 120 分鐘，直接殺進商店把瑪利歐星星爆米花桶買齊！", w: { shopper: 3 }, d: { shop: 3 } },
+      C: { tag: "City Walk 探險家", short: "漫步看巡演", text: "放棄排隊，買杯熱奶油啤酒在園區街道漫步、看巡演。", w: { explorer: 3, capybara: 1 }, d: { explore: 2, chill: 1, food: 1 } },
     },
   },
   {
     id: 3, node: 2, title: "道頓堀晚餐攻防", subtitle: "預算與食慾的正面對決", clock: "18:00 傍晚",
-    scene: "細雨中的道頓堀，霓虹全開、香味四溢。名店門口排著長龍，隔壁巷子也飄出香味，大家的肚子同時叫了⋯",
-    placeholder: "輸入你的晚餐方案⋯",
-    advice: "晚餐可以各吃各的，之後再會合。",
+    scene: "細雨中的道頓堀，霓虹全開、香味四溢。名店門口排著長龍，隔壁巷子也飄出醬香，大家的肚子同時叫了⋯⋯",
+    placeholder: "輸入你的晚餐方案⋯⋯",
+    advice: "晚餐可以各吃各的，甜點再會合。",
     options: {
-      A: { tag: "名店奢華／打卡機", short: "蟹道樂全席", text: "衝蟹道樂本店螃蟹全席，配黑門和牛串！來都來了，一人約 NT$2,500。", w: { camera: 2, shopper: 2 }, d: { food: 3, photo: 1 }, price: 2500 },
-      B: { tag: "CP 值精算／探險家", short: "巷弄大阪燒", text: "打開 Tabelog 找隔壁巷子 4.5 分的隱藏版大阪燒＋章魚燒，一人約 NT$600。", w: { accountant: 3, explorer: 2 }, d: { food: 3, explore: 1 }, price: 600 },
+      A: { tag: "名店奢華／打卡機", short: "蟹道樂全席", text: "衝蟹道樂本店螃蟹全席，配黑門和牛串——來都來了，一人約 NT$2,500。", w: { camera: 2, shopper: 2 }, d: { food: 3, photo: 1 }, price: 2500 },
+      B: { tag: "CP 值精算／探險家", short: "巷弄大阪燒", text: "打開 Tabelog 找隔壁巷子 3.6 分的隱藏版大阪燒＋章魚燒，一人約 NT$600。", w: { accountant: 3, explorer: 2 }, d: { food: 3, explore: 1 }, price: 600 },
       C: { tag: "慢活／計程車", short: "超商回飯店", text: "腳快斷了，超商買熱食和罐裝啤酒，回飯店邊泡腳邊吃，一人約 NT$300。", w: { capybara: 3, taxi: 2 }, d: { chill: 3, food: 1 }, price: 300 },
     },
   },
   {
     id: 4, node: 3, title: "心齋橋分流行動", subtitle: "20:30 打烊前的最後衝刺", clock: "18:30 夜晚",
-    scene: "夜幕降臨心齋橋筋商店街，藥妝店、Bic Camera 與古著店分散在不同街區，而店鋪即將在 20:30 打烊⋯",
+    scene: "夜幕降臨心齋橋筋商店街，藥妝店、Bic Camera 與古著店分散在不同街區，而店鋪即將在 20:30 打烊⋯⋯",
     placeholder: "輸入你的最後衝刺方式⋯⋯",
     advice: "今晚分頭逛，回飯店再開戰利品發表會。",
     options: {
-      A: { tag: "原地分流自由行", short: "原地分流", text: "時間不夠了！原地解散分頭逛 2 小時，晚上飯店集合。", w: { shopper: 2, explorer: 2, camera: 1, soldier: 1 }, d: { shop: 2, explore: 2 }, needNet: true },
-      B: { tag: "全員抱團行動", short: "全員抱團", text: "天冷迷路很麻煩！大家緊緊跟在一起，逛到底。", w: { nanny: 3, soldier: 1 }, d: { shop: 1, hustle: 1 } },
-      C: { tag: "定點駐紮避難", short: "星巴克駐紮", text: "完全走不動了，你們先逛，我找一間星巴克坐著等你們來領我。", w: { capybara: 2, taxi: 2 }, d: { chill: 3 } },
+      A: { tag: "原地分流自由行", short: "原地分流", text: "時間不夠了！原地解散分頭逛 2 小時，靠網路傳比價與照片，晚上飯店集合。", w: { shopper: 2, explorer: 2, camera: 1, soldier: 1 }, d: { shop: 2, explore: 2 }, needNet: true },
+      B: { tag: "全員抱團行動", short: "全員抱團", text: "天冷迷路很麻煩！大家緊緊跟在一起，一間一間陪著逛到底。", w: { nanny: 3, soldier: 1 }, d: { shop: 1, hustle: 1 } },
+      C: { tag: "定點駐紮避難", short: "星巴克駐紮", text: "我完全走不動了，你們去逛，我找一間星巴克坐著等你們來領我。", w: { capybara: 2, taxi: 2 }, d: { chill: 3 } },
     },
   },
 ];
@@ -400,7 +683,7 @@ function budgetFeedback(budgetKey, results) {
   const price = ROUNDS[2].options[me.choice].price;
   const b = BUDGETS.find((x) => x.key === budgetKey) || BUDGETS[1];
   if (b.key === "thrifty" && price > b.mealCap) {
-    return { tone: "warn", text: "⚠️ 預算警報！你的荷包正在發出抗議！", sub: `一餐 ${money(price)}，但你設定的是「${b.name}（${b.range}）」——這一口螃蟹大概等於明天的交通費。` };
+    return { tone: "warn", text: "⚠️ 預算警報！你的荷包正在向你的胃發出抗議！", sub: `一餐 ${money(price)}，但你設定的是「${b.name}（${b.range}）」——這一口螃蟹大概等於明天的交通費。` };
   }
   if (b.key === "standard" && price > b.mealCap) {
     return { tone: "warn", text: "🤔 小小超支，但道頓堀值得", sub: `一餐 ${money(price)} 超出「${b.name}」的日常餐標，明天午餐吃串炸平衡一下就好。` };
@@ -421,7 +704,7 @@ function buildHint(roundIdx, results, ctx) {
 
   if (active.length >= 2 && letters.size === 1 && !letters.has("D")) {
     headline = `😳 驚人共識：全隊都選「${shortOf(roundIdx, active[0])}」`;
-    sub = "連 TripMate 都愣住了，你們可以直接組戰隊出道了。";
+    sub = "連 GM 都愣住了，這種默契可以直接組戰隊出道。";
   } else {
     let worst = null;
     for (let i = 0; i < active.length; i += 1) {
@@ -441,7 +724,7 @@ function buildHint(roundIdx, results, ctx) {
 
   const rows = [];
   if (roundIdx === 1 && ctx.lagged) {
-    rows.push({ tone: "warn", text: "📶 你剛剛在 USJ 轉圈圈的那幾秒，整理券已經被別人搶完了。" });
+    rows.push({ tone: "warn", text: "📶 順帶一提：你剛剛在 USJ 轉圈圈的那幾秒，整理券已經被別人搶完了。" });
   }
   if (roundIdx === 2) {
     const fb = budgetFeedback(ctx.budget, results);
@@ -515,10 +798,10 @@ function analyzeTeam(players, history, seeds, days = 5) {
   const prefs = DIMS.map((d) => ({ ...d, pct: Math.round((teamDims[d.key] / dimTotal) * 100) })).sort((x, y) => y.pct - x.pct);
 
   const vi = vibe >= 80
-    ? { emoji: "💞", label: "靈魂同步戰隊", desc: "節奏超合拍。" }
+    ? { emoji: "💞", label: "靈魂同步戰隊", desc: "節奏超合拍，同樂時段可以放心排滿。" }
     : vibe >= 60
-      ? { emoji: "🧩", label: "互補型冒險團", desc: "偏好剛好互補，適度分流更盡興。" }
-      : { emoji: "🌪️", label: "分流保友情團", desc: "節奏落差明顯，排好分流時段是關鍵。" };
+      ? { emoji: "🧩", label: "互補型冒險團", desc: "偏好有落差但剛好互補，適度分流玩得更盡興。" }
+      : { emoji: "🌪️", label: "分流保友情團", desc: "節奏落差明顯，排好分流時段是維持友情的關鍵。" };
 
   return {
     members,
@@ -544,7 +827,8 @@ function Card({ className = "", children, ...rest }) {
   );
 }
 
-function Btn({ variant = "primary", size = "md", className = "", disabled, children, ...rest }) {
+// sound：這顆按鈕要發的音效名稱，傳 null 就完全靜音
+function Btn({ variant = "primary", size = "md", className = "", disabled, sound = "tap", onClick, children, ...rest }) {
   const tone = {
     primary: "bg-[#FF6B35] text-white",
     sun: "bg-[#FFC93C] text-[#1F2350]",
@@ -557,11 +841,47 @@ function Btn({ variant = "primary", size = "md", className = "", disabled, child
       type="button"
       disabled={disabled}
       whileTap={disabled ? undefined : { scale: 0.96, y: 2 }}
+      onClick={(e) => {
+        if (sound) sfx(sound);
+        onClick?.(e);
+      }}
       className={`inline-flex items-center justify-center gap-2 rounded-2xl border-[3px] border-[#1F2350] font-bold shadow-[4px_4px_0_#1F2350] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none ${tone} ${pad} ${className}`}
       {...rest}
     >
       {children}
     </motion.button>
+  );
+}
+
+/* 次要說明摺起來：資訊還留著，但不會一進畫面就整面壓上來 */
+function Fold({ title, icon, defaultOpen = false, tone = "#FFF8EE", className = "", children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={`overflow-hidden rounded-2xl border-2 border-[#1F2350] ${className}`} style={{ background: tone }}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => { sfx("tap"); setOpen((o) => !o); }}
+        className="flex w-full items-start gap-1.5 px-3 py-2 text-left"
+      >
+        {icon && <span className="shrink-0 leading-snug">{icon}</span>}
+        <span className="min-w-0 flex-1 text-xs font-black leading-relaxed">{title}</span>
+        <motion.span animate={{ rotate: open ? 90 : 0 }} className="shrink-0 text-[11px] leading-snug opacity-45">▶</motion.span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 pb-3 text-xs leading-relaxed opacity-80">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -898,6 +1218,14 @@ function SetupScreen({ onStart, toast }) {
     return QUIZ_MAP[k] || null;
   }, [quiz]);
 
+  // 人格一算出來就配一段「揭曉」音，優惠碼解鎖再補一聲金幣
+  useEffect(() => {
+    if (!seedPersona) return undefined;
+    sfx("success");
+    const t = setTimeout(() => sfx("coin"), 620);
+    return () => clearTimeout(t);
+  }, [seedPersona]);
+
   const isHost = roomMode === "create";
   const code = isHost ? newCode : joinedCode || "";
   const destName = DESTINATIONS.find((d) => d.key === destKey)?.name || TRIP.dest;
@@ -928,6 +1256,7 @@ function SetupScreen({ onStart, toast }) {
   };
 
   const pick = (qid, key) => {
+    sfx("select");
     setQuiz((s) => ({ ...s, [qid]: key }));
     if (qIdx < QUIZ.length - 1) setTimeout(() => setQIdx((i) => i + 1), 260);
   };
@@ -952,8 +1281,8 @@ function SetupScreen({ onStart, toast }) {
               <div className="mx-auto mt-1 w-fit">
                 <Mascot persona={seedPersona} size={150} bg={false} />
               </div>
-              <h1 className="tm-display text-[30px] leading-tight">測測你是哪種旅人</h1>
-              <p className="mt-1 text-sm opacity-70">答完就會拿到你的去趣專屬造型，正式遊戲再微調。</p>
+              <h1 className="tm-display text-[30px] leading-tight">3 題，先看看你是哪種旅人</h1>
+              <p className="mt-1 text-sm opacity-70">答完就會拿到你的去趣造型稱號，正式遊戲再微調。</p>
             </Card>
 
             <Card className="space-y-3 p-4">
@@ -1016,7 +1345,7 @@ function SetupScreen({ onStart, toast }) {
                           </Btn>
                         </div>
                         <p className="mt-2 text-xs leading-relaxed opacity-70">
-                          去趣 eSIM 全館 85 折，每日流量型每天 {money(22)} 起。現在先收著就好，等行程排完，我們會照實際的行程算出適合的方案，代碼也會自動帶入。
+                          去趣 eSIM 全館 85 折，每日流量型每天 {money(22)} 起。現在先收著就好——等行程排完，我們會照你們實際的行程算出適合的方案與電信商，這組碼會自動帶入。
                         </p>
                       </div>
                     </Card>
@@ -1031,13 +1360,13 @@ function SetupScreen({ onStart, toast }) {
         {/* ---------- Step 2：預算錨定 + 行前網路 ---------- */}
         {step === 1 && (
           <>
-            <button type="button" onClick={() => setStep(0)} className="inline-flex items-center gap-1 text-sm font-bold opacity-70">
+            <button type="button" onClick={() => { sfx("back"); setStep(0); }} className="inline-flex items-center gap-1 text-sm font-bold opacity-70">
               <ChevronLeft size={18} /> 返回快測
             </button>
             <Card className="p-4">
               <Chip><Wallet size={13} /> Step 2／3　預算錨定</Chip>
               <h2 className="tm-display mt-2 text-2xl">這趟大阪，你的預算級別？</h2>
-              <p className="text-xs opacity-60">整趟行程（不含機票）。遊戲中的晚餐題會給你即時反饋。</p>
+              <p className="text-xs opacity-60">整趟行程（不含機票）。遊戲中的晚餐題會依這個級別給你即時反饋。</p>
               <div className="mt-3 space-y-2">
                 {BUDGETS.map((b) => (
                   <motion.button
@@ -1063,7 +1392,7 @@ function SetupScreen({ onStart, toast }) {
             <Card className="p-4">
               <Chip><Wifi size={13} /> 行前網路方案</Chip>
               <h2 className="tm-display mt-2 text-2xl">在日本你打算怎麼上網？</h2>
-              <p className="text-xs opacity-60">選擇會真的影響遊戲過程，會卡的方案就是會卡。</p>
+              <p className="text-xs opacity-60">這個選擇會真的影響遊戲過程，選到會卡的方案就是會卡。一天差幾十塊，體驗差很多。</p>
               <div className="mt-3 space-y-2">
                 {NETWORKS.map((n) => (
                   <motion.button
@@ -1296,6 +1625,75 @@ const FOLLOW_OFFSET = [
   [0, 0], [18, 10], [-18, 10], [26, -8], [-26, -8], [0, 20],
 ];
 
+/* 回合之間的站點轉場：蓋住畫面 → 換掉底下的題目 → 拉開
+   （朋友回饋「中間可以穿插動畫」，順便讓換題不那麼突然） */
+function StationTransition({ node, roundNo, total, last, onMid, onDone }) {
+  const midRef = useRef(onMid);
+  const doneRef = useRef(onDone);
+  midRef.current = onMid;
+  doneRef.current = onDone;
+
+  useEffect(() => {
+    sfx("swoosh");
+    const a = setTimeout(() => { sfx(last ? "fanfare" : "arrive"); midRef.current?.(); }, 640);
+    const b = setTimeout(() => doneRef.current?.(), 2000);
+    return () => { clearTimeout(a); clearTimeout(b); };
+  }, [last]);
+
+  return (
+    <motion.div className="fixed inset-0 z-[70] overflow-hidden" initial={{ opacity: 1 }} exit={{ opacity: 1 }}>
+      <motion.div
+        className="absolute -inset-x-10 inset-y-0 flex flex-col items-center justify-center gap-3 px-10"
+        style={{
+          background: INK,
+          backgroundImage: `radial-gradient(#FFFFFF1F 1.4px, transparent 1.5px)`,
+          backgroundSize: "20px 20px",
+        }}
+        initial={{ x: "112%", skewX: -7 }}
+        animate={{ x: "0%", skewX: 0 }}
+        exit={{ x: "-112%", skewX: 7 }}
+        transition={{ type: "tween", ease: [0.7, 0, 0.2, 1], duration: 0.55 }}
+      >
+        <motion.div
+          initial={{ scale: 0, rotate: -35 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: "spring", stiffness: 260, damping: 14, delay: 0.42 }}
+          className="grid h-24 w-24 place-items-center rounded-[28px] border-[4px] border-[#1F2350] bg-[#FFC93C] text-5xl shadow-[6px_6px_0_#FF6B35]"
+        >
+          {last ? "🏁" : node.emoji}
+        </motion.div>
+
+        <motion.div
+          className="flex flex-col items-center gap-1 text-center"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.58, duration: 0.3 }}
+        >
+          <span className="rounded-full border-2 border-[#FFC93C] px-3 py-0.5 text-xs font-bold tracking-widest text-[#FFC93C]">
+            {last ? "四站全部走完" : `第 ${roundNo} 站 / ${total}`}
+          </span>
+          <span className="tm-display text-[30px] leading-tight text-white">{last ? "回飯店結算" : node.name}</span>
+          <span className="text-sm font-bold text-white/60">{last ? "來看看你們是什麼組合" : `現在氣溫 ${node.temp}`}</span>
+        </motion.div>
+
+        <motion.div
+          className="mt-1 flex gap-1.5"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.7 }}
+        >
+          {Array.from({ length: total }, (_, i) => (
+            <span
+              key={i}
+              className={`h-1.5 rounded-full ${i < roundNo - 1 ? "w-6 bg-[#FF6B35]" : "w-3 bg-white/25"}`}
+            />
+          ))}
+        </motion.div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function GameMap({ nodeIdx, players, banner }) {
   return (
     <Card className="relative overflow-hidden p-0">
@@ -1422,7 +1820,7 @@ function LagModal({ network, onDone }) {
   doneRef.current = onDone;
 
   useEffect(() => {
-    if (step >= LAG_STEPS.length - 1) return undefined;
+    if (step >= LAG_STEPS.length - 1) { sfx("warn"); return undefined; }
     const t = setTimeout(() => setStep((s) => s + 1), 1800);
     return () => clearTimeout(t);
   }, [step]);
@@ -1461,7 +1859,7 @@ function LagModal({ network, onDone }) {
             人潮擁擠的園區裡，共用熱點和漫遊降速都會變成這樣。這 6 秒就是別人搶到整理券的時間。
           </p>
           <Btn className="mt-4 w-full" disabled={!last} onClick={() => doneRef.current()}>
-            {last ? <><WifiOff size={18} /> 好吧⋯繼續遊戲</> : "連線中，請稍候"}
+            {last ? <><WifiOff size={18} /> 好吧⋯⋯繼續遊戲</> : "連線中，請稍候"}
           </Btn>
         </Card>
       </motion.div>
@@ -1478,6 +1876,7 @@ function HintModal({ roundIdx, results, hint, onClose }) {
   closeRef.current = onClose;
 
   useEffect(() => {
+    sfx("success");
     const started = Date.now();
     const id = setInterval(() => {
       const left = HINT_MS - (Date.now() - started);
@@ -1513,7 +1912,7 @@ function HintModal({ roundIdx, results, hint, onClose }) {
           <div className="flex items-center gap-2">
             <div className="grid h-9 w-9 place-items-center rounded-full border-[3px] border-[#1F2350] bg-[#FFC93C]"><Radio size={16} /></div>
             <div>
-              <div className="text-sm font-black">去趣 TripMate・大提示</div>
+              <div className="text-sm font-black">去趣 GM・大提示</div>
               <div className="text-[11px] opacity-60">第 {roundIdx + 1} 站　{ROUNDS[roundIdx].title}</div>
             </div>
           </div>
@@ -1631,7 +2030,7 @@ function RoundCard({ roundIdx, players, profile, onSubmit }) {
             <motion.div key={k} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.08 + i * 0.06 }}>
               <motion.button
                 type="button"
-                onClick={() => setSel(k)}
+                onClick={() => { sfx("select"); setSel(k); }}
                 whileTap={{ scale: 0.98 }}
                 animate={{ y: active ? -2 : 0 }}
                 aria-pressed={active}
@@ -1655,7 +2054,7 @@ function RoundCard({ roundIdx, players, profile, onSubmit }) {
 
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.26 }}>
           <div
-            onClick={() => { setSel("D"); inputRef.current?.focus(); }}
+            onClick={() => { if (sel !== "D") sfx("select"); setSel("D"); inputRef.current?.focus(); }}
             className={`rounded-2xl border-[3px] border-[#1F2350] p-3 transition-[background-color,box-shadow] duration-150 ${sel === "D" ? "border-solid bg-[#ECE5FF] shadow-[4px_4px_0_#1F2350]" : "border-dashed bg-white/70"}`}
           >
             <div className="flex items-start gap-3">
@@ -1808,7 +2207,7 @@ function PersonaCard({ member, seedPersona }) {
           ))}
         </div>
         <div className="rounded-2xl bg-[#FFF3A6] p-3 text-sm leading-relaxed">
-          <span className="font-black">TripMate 短評：</span>{fill(P.roast, { name: "你" })}
+          <span className="font-black">GM 短評：</span>{fill(P.roast, { name: "你" })}
         </div>
       </div>
     </Card>
@@ -1827,7 +2226,7 @@ function StickyNote({ groups }) {
       <div className="mb-1 text-lg font-bold">去趣小提醒 ✏️</div>
       <p>
         ～提醒你們一下！2 月初的大阪晚間只有 4 度左右，
-        {groups > 1 ? `而且你們今晚會分成 ${groups} 組在心齋橋分頭逛街，` : "就算大家想團體行動，人潮一多還是很容易走散，"}
+        {groups > 1 ? `而且你們今晚會分成 ${groups} 組在心齋橋分頭逛街，` : "就算大家想抱團行動，人潮一多還是很容易走散，"}
         心齋橋地下街迷宮訊號容易不穩，記得手機保持暢通才找得到彼此喔！
       </p>
       <div className="mt-2 text-right">— 去趣 🧡</div>
@@ -1850,181 +2249,233 @@ function SummaryScreen({ session, history, analysis, onRestart, onPlan, toast })
     toast(ok ? "結算連結已複製，貼到群組讓大家看看自己的人格" : `複製失敗，請手動複製：${url}`);
   };
 
+  /* 結算頁分成三步：手機上一屏一件事，不用一直往下滑 */
+  const STEPS = [
+    { key: "me", label: "你的人格", icon: "🎭" },
+    { key: "team", label: "隊伍分析", icon: "📊" },
+    { key: "plan", label: "行程建議", icon: "🗓️" },
+  ];
+  const [step, setStep] = useState(0);
+  const lastStep = step === STEPS.length - 1;
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [step]);
+
   return (
-    <div className="pb-12">
-      <div className="mb-4">
-        <h1 className="tm-display text-[32px] leading-tight">{session.dest.replace("日本", "")}冒險結算</h1>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <Chip>📍 {session.dest}</Chip>
-          <Chip>🗓️ {fmtDate(session.date)}</Chip>
+    <div className="pb-28">
+      <div className="mb-3">
+        <h1 className="tm-display text-[28px] leading-tight">{session.dest.replace("日本", "")}冒險結算</h1>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
           <Chip>🌙 {tripLabel(session.days)}</Chip>
           <Chip>👥 {n} 人</Chip>
           <Chip>{BUDGETS.find((b) => b.key === session.budget)?.icon} {BUDGETS.find((b) => b.key === session.budget)?.name}</Chip>
         </div>
       </div>
 
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_330px]">
-        {/* 左欄：結算內容 */}
-        <div className="min-w-0 space-y-5">
-          <PersonaCard member={me} seedPersona={session.seedPersona} />
+      {/* 三步進度 */}
+      <div className="mb-4 flex gap-1.5">
+        {STEPS.map((st, i) => (
+          <button
+            key={st.key}
+            type="button"
+            onClick={() => { sfx("tap"); setStep(i); }}
+            aria-current={i === step}
+            className={`flex-1 rounded-xl border-[3px] border-[#1F2350] px-1 py-1.5 text-center transition-colors ${
+              i === step ? "bg-[#1F2350] text-white shadow-[3px_3px_0_#FF6B35]" : i < step ? "bg-[#E3F5EA]" : "bg-white"
+            }`}
+          >
+            <span className="block text-base leading-none">{st.icon}</span>
+            <span className="mt-0.5 block text-[10.5px] font-black leading-tight">{st.label}</span>
+          </button>
+        ))}
+      </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            {A.members.filter((m) => !m.player.isUser).map((m, i) => {
-              const TP = PERSONAS[m.persona];
-              return (
-                <Card key={m.player.id} className="flex gap-2 p-3">
-                  <div className="shrink-0 self-start rounded-2xl" style={{ background: TP.soft }}>
-                    <Mascot persona={m.persona} size={76} bg={false} float={false} delay={0.15 + i * 0.1} />
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={STEPS[step].key}
+          initial={{ opacity: 0, x: 24 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -24 }}
+          transition={{ duration: 0.22 }}
+          className="space-y-4"
+        >
+          {step === 0 && (
+            <>
+              <PersonaCard member={me} seedPersona={session.seedPersona} />
+              <div className="text-sm font-black">隊友是哪一型？</div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {A.members.filter((m) => !m.player.isUser).map((m, i) => {
+            const TP = PERSONAS[m.persona];
+            return (
+              <Card key={m.player.id} className="flex gap-2 p-3">
+                <div className="shrink-0 self-start rounded-2xl" style={{ background: TP.soft }}>
+                  <Mascot persona={m.persona} size={76} bg={false} float={false} delay={0.15 + i * 0.1} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <Avatar p={m.player} size={22} />
+                    <span className="text-sm font-bold">{m.player.name}</span>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <Avatar p={m.player} size={22} />
-                      <span className="text-sm font-bold">{m.player.name}</span>
-                    </div>
-                    <div className="tm-display text-base leading-tight" style={{ color: TP.color }}>{TP.emoji} {TP.name}</div>
-                    <div className="mt-1 rounded-xl bg-[#FFF8EE] px-2 py-1 text-[11px] leading-relaxed">
-                      {fill(TP.roast, { name: m.player.name })}
-                    </div>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-
-          <Card className="p-4">
-            <div className="flex items-center gap-4">
-              <div className="grid h-24 w-24 shrink-0 place-items-center rounded-full border-[3px] border-[#1F2350]" style={{ background: `conic-gradient(${PERSIMMON} ${A.vibe * 3.6}deg, #FFE1D3 0)` }}>
-                <div className="grid h-[70px] w-[70px] place-items-center rounded-full border-[3px] border-[#1F2350] bg-white">
-                  <div className="text-center leading-none">
-                    <div className="tm-num text-2xl font-black"><CountUp to={A.vibe} /><span className="text-sm">%</span></div>
-                    <div className="mt-0.5 text-[9px] font-bold opacity-60">節奏合拍</div>
+                  <div className="tm-display text-base leading-tight" style={{ color: TP.color }}>{TP.emoji} {TP.name}</div>
+                  <div className="mt-1 rounded-xl bg-[#FFF8EE] px-2 py-1 text-[11px] leading-relaxed">
+                    {fill(TP.roast, { name: m.player.name })}
                   </div>
                 </div>
-              </div>
-              <div>
-                <div className="tm-display text-xl leading-tight">{A.vibeInfo.emoji} {A.vibeInfo.label}</div>
-                <p className="mt-1 text-sm leading-relaxed opacity-80">{A.vibeInfo.desc}</p>
+              </Card>
+            );
+          })}
+        </div>
+            </>
+          )}
+
+          {step === 1 && (
+            <>
+        <Card className="p-4">
+          <div className="flex items-center gap-4">
+            <div className="grid h-24 w-24 shrink-0 place-items-center rounded-full border-[3px] border-[#1F2350]" style={{ background: `conic-gradient(${PERSIMMON} ${A.vibe * 3.6}deg, #FFE1D3 0)` }}>
+              <div className="grid h-[70px] w-[70px] place-items-center rounded-full border-[3px] border-[#1F2350] bg-white">
+                <div className="text-center leading-none">
+                  <div className="tm-num text-2xl font-black"><CountUp to={A.vibe} /><span className="text-sm">%</span></div>
+                  <div className="mt-0.5 text-[9px] font-bold opacity-60">節奏合拍</div>
+                </div>
               </div>
             </div>
+            <div>
+              <div className="tm-display text-xl leading-tight">{A.vibeInfo.emoji} {A.vibeInfo.label}</div>
+              <p className="mt-1 text-sm leading-relaxed opacity-80">{A.vibeInfo.desc}</p>
+            </div>
+          </div>
 
-            <div className="mt-3 grid gap-4 sm:grid-cols-2 sm:items-center">
-              <Radar members={A.members} max={A.maxDim} focus={focus} />
-              <div className="space-y-2">
-                {A.prefs.map((p, i) => (
-                  <div key={p.key} className="flex items-center gap-2 text-sm">
-                    <span className="w-16 shrink-0 font-bold">{p.icon} {p.label}</span>
-                    <div className="h-3 flex-1 overflow-hidden rounded-full border-2 border-[#1F2350] bg-white">
-                      <motion.div
-                        className="h-full"
-                        style={{ background: i === 0 ? PERSIMMON : i === 1 ? "#FFC93C" : "#7CC6FE" }}
-                        initial={{ width: 0 }}
-                        whileInView={{ width: `${(p.pct / top) * 100}%` }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.7, delay: i * 0.06 }}
-                      />
+          <div className="mt-3 grid gap-4 sm:grid-cols-2 sm:items-center">
+            <Radar members={A.members} max={A.maxDim} focus={focus} />
+            <div className="space-y-2">
+              {A.prefs.map((p, i) => (
+                <div key={p.key} className="flex items-center gap-2 text-sm">
+                  <span className="w-16 shrink-0 font-bold">{p.icon} {p.label}</span>
+                  <div className="h-3 flex-1 overflow-hidden rounded-full border-2 border-[#1F2350] bg-white">
+                    <motion.div
+                      className="h-full"
+                      style={{ background: i === 0 ? PERSIMMON : i === 1 ? "#FFC93C" : "#7CC6FE" }}
+                      initial={{ width: 0 }}
+                      whileInView={{ width: `${(p.pct / top) * 100}%` }}
+                      viewport={{ once: true }}
+                      transition={{ duration: 0.7, delay: i * 0.06 }}
+                    />
+                  </div>
+                  <span className="tm-num w-9 text-right text-xs font-black">{p.pct}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+            {A.members.map((m) => (
+              <button
+                key={m.player.id}
+                type="button"
+                onClick={() => setFocus((f) => (f === m.player.id ? null : m.player.id))}
+                aria-pressed={focus === m.player.id}
+                className={`inline-flex items-center gap-1 rounded-full border-2 border-[#1F2350] px-2.5 py-1 text-xs font-bold ${focus === m.player.id ? "bg-[#FFC93C]" : "bg-white"}`}
+              >
+                <i className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: m.player.color }} />
+                {m.player.isUser ? `${m.player.name}（你）` : m.player.name}
+              </button>
+            ))}
+          </div>
+
+          {A.bestPair && (
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-2xl border-2 border-[#1F2350] bg-[#E3F5EA] p-3">
+                <div className="text-xs font-black text-[#1F7A55]">💞 最合拍組合</div>
+                <div className="mt-0.5 font-bold">{A.bestPair.a.player.name} × {A.bestPair.b.player.name}</div>
+                <div className="text-xs leading-relaxed opacity-75">{pairReason(A.bestPair, true)}</div>
+              </div>
+              {A.splitPair && (
+                <div className="rounded-2xl border-2 border-[#1F2350] bg-[#FFE1D3] p-3">
+                  <div className="text-xs font-black text-[#B8440E]">🔀 最需要分流</div>
+                  <div className="mt-0.5 font-bold">{A.splitPair.a.player.name} × {A.splitPair.b.player.name}</div>
+                  <div className="text-xs leading-relaxed opacity-75">{pairReason(A.splitPair, false)}</div>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+        <Card className="p-4">
+          <div className="flex items-center justify-between text-sm font-black">
+            <span>👥 集體同樂 {100 - A.splitPct}%</span>
+            <span>🔀 分流探險 {A.splitPct}%</span>
+          </div>
+          <div className="mt-2 flex h-4 overflow-hidden rounded-full border-[3px] border-[#1F2350]">
+            <motion.div className="h-full bg-[#6CC08B]" initial={{ width: "50%" }} whileInView={{ width: `${100 - A.splitPct}%` }} viewport={{ once: true }} transition={{ duration: 0.9 }} />
+            <div className="h-full flex-1 bg-[#A98BFF]" />
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border-2 border-[#1F2350] bg-[#E3F5EA] p-3">
+              <div className="text-[11px] font-black text-[#1F7A55]">集體同樂時段</div>
+              <ul className="mt-1 space-y-1 text-xs font-bold leading-snug">
+                {A.plan.collective.map((c) => <li key={c}>{c}</li>)}
+              </ul>
+            </div>
+            <div className="rounded-2xl border-2 border-[#1F2350] bg-[#F3EEFF] p-3">
+              <div className="text-[11px] font-black text-[#5B3FC4]">建議分流時段</div>
+              <div className="mt-1 text-xs font-bold">{A.plan.splitTitle}</div>
+              <div className="mt-2 space-y-1.5">
+                {A.plan.groups.map((g) => (
+                  <div key={g.key} className="rounded-xl border-2 border-[#1F2350]/20 bg-white p-2">
+                    <div className="text-xs font-bold">{g.icon} {g.name}</div>
+                    <div className="text-[10px] opacity-60">{g.desc}</div>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {g.members.map((p) => (
+                        <span key={p.id} className="rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white" style={{ background: p.color }}>
+                          {p.isUser ? `${p.name}（你）` : p.name}
+                        </span>
+                      ))}
                     </div>
-                    <span className="tm-num w-9 text-right text-xs font-black">{p.pct}%</span>
                   </div>
                 ))}
               </div>
             </div>
-
-            <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-              {A.members.map((m) => (
-                <button
-                  key={m.player.id}
-                  type="button"
-                  onClick={() => setFocus((f) => (f === m.player.id ? null : m.player.id))}
-                  aria-pressed={focus === m.player.id}
-                  className={`inline-flex items-center gap-1 rounded-full border-2 border-[#1F2350] px-2.5 py-1 text-xs font-bold ${focus === m.player.id ? "bg-[#FFC93C]" : "bg-white"}`}
-                >
-                  <i className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: m.player.color }} />
-                  {m.player.isUser ? `${m.player.name}（你）` : m.player.name}
-                </button>
-              ))}
-            </div>
-
-            {A.bestPair && (
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                <div className="rounded-2xl border-2 border-[#1F2350] bg-[#E3F5EA] p-3">
-                  <div className="text-xs font-black text-[#1F7A55]">💞 最合拍組合</div>
-                  <div className="mt-0.5 font-bold">{A.bestPair.a.player.name} × {A.bestPair.b.player.name}</div>
-                  <div className="text-xs leading-relaxed opacity-75">{pairReason(A.bestPair, true)}</div>
-                </div>
-                {A.splitPair && (
-                  <div className="rounded-2xl border-2 border-[#1F2350] bg-[#FFE1D3] p-3">
-                    <div className="text-xs font-black text-[#B8440E]">🔀 最需要分流</div>
-                    <div className="mt-0.5 font-bold">{A.splitPair.a.player.name} × {A.splitPair.b.player.name}</div>
-                    <div className="text-xs leading-relaxed opacity-75">{pairReason(A.splitPair, false)}</div>
-                  </div>
-                )}
-              </div>
-            )}
-          </Card>
-
-          {/* 行程還沒排，這裡只提醒優惠碼，方案等排完行程再推 */}
-          <CouponReminder session={session} onPlan={onPlan} toast={toast} />
-
-          <Card className="p-4">
-            <div className="flex items-center justify-between text-sm font-black">
-              <span>👥 集體同樂 {100 - A.splitPct}%</span>
-              <span>🔀 分流探險 {A.splitPct}%</span>
-            </div>
-            <div className="mt-2 flex h-4 overflow-hidden rounded-full border-[3px] border-[#1F2350]">
-              <motion.div className="h-full bg-[#6CC08B]" initial={{ width: "50%" }} whileInView={{ width: `${100 - A.splitPct}%` }} viewport={{ once: true }} transition={{ duration: 0.9 }} />
-              <div className="h-full flex-1 bg-[#A98BFF]" />
-            </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border-2 border-[#1F2350] bg-[#E3F5EA] p-3">
-                <div className="text-[11px] font-black text-[#1F7A55]">集體同樂時段</div>
-                <ul className="mt-1 space-y-1 text-xs font-bold leading-snug">
-                  {A.plan.collective.map((c) => <li key={c}>{c}</li>)}
-                </ul>
-              </div>
-              <div className="rounded-2xl border-2 border-[#1F2350] bg-[#F3EEFF] p-3">
-                <div className="text-[11px] font-black text-[#5B3FC4]">建議分流時段</div>
-                <div className="mt-1 text-xs font-bold">{A.plan.splitTitle}</div>
-                <div className="mt-2 space-y-1.5">
-                  {A.plan.groups.map((g) => (
-                    <div key={g.key} className="rounded-xl border-2 border-[#1F2350]/20 bg-white p-2">
-                      <div className="text-xs font-bold">{g.icon} {g.name}</div>
-                      <div className="text-[10px] opacity-60">{g.desc}</div>
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {g.members.map((p) => (
-                          <span key={p.id} className="rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white" style={{ background: p.color }}>
-                            {p.isUser ? `${p.name}（你）` : p.name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-4" style={{ background: "#FFF3A6" }}>
-            <div className="flex items-start gap-3">
-              <span className="text-3xl">🗓️</span>
-              <div className="min-w-0 flex-1">
-                <div className="tm-display text-xl leading-tight">接下來，一起把行程排出來</div>
-                <p className="mt-1 text-sm leading-relaxed">
-                  AI 會依你的人格與偏好推薦大阪景點，右滑存行程、左滑跳過。存檔後全隊看到的是同一份，誰改了什麼都會即時同步。
-                </p>
-              </div>
-            </div>
-            <Btn className="mt-3 w-full" onClick={onPlan}><Sparkles size={18} /> 開始排行程</Btn>
-          </Card>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Btn variant="ghost" onClick={onRestart}><RotateCcw size={18} /> 再玩一次</Btn>
-            <Btn variant="ink" onClick={copyLine}><Share2 size={18} /> 分享結算</Btn>
           </div>
-        </div>
+        </Card>
 
-        {/* 右欄：常駐提醒 */}
-        <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-          <StickyNote groups={A.plan.groups.length} />
+              <StickyNote groups={A.plan.groups.length} />
+              <Fold tone="#FFF3A6" icon={<span className="text-sm">🗓️</span>} title="下一步的排行程是怎麼玩的？">
+                AI 會依你的人格與偏好推薦大阪景點，右滑存進行程、左滑跳過。存檔後全隊看到的是同一份，誰改了什麼都會即時同步。
+              </Fold>
+              <CouponReminder session={session} toast={toast} />
+              <div className="grid grid-cols-2 gap-3">
+                <Btn variant="ghost" onClick={onRestart}><RotateCcw size={18} /> 再玩一次</Btn>
+                <Btn variant="ink" onClick={copyLine}><Share2 size={18} /> 分享結算</Btn>
+              </div>
+            </>
+          )}
+        </motion.div>
+      </AnimatePresence>
+
+      {/* 底部固定：永遠看得到下一步要做什麼 */}
+      <div
+        className="fixed inset-x-0 bottom-0 z-30 border-t-[3px] border-[#1F2350] bg-[#FFE8D1]/95 px-4 py-3 backdrop-blur"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
+      >
+        <div className="mx-auto flex max-w-5xl items-center gap-2">
+          {step > 0 && (
+            <Btn variant="ghost" size="sm" onClick={() => setStep((s) => s - 1)} className="shrink-0">
+              <ChevronLeft size={16} /> 上一步
+            </Btn>
+          )}
+          {lastStep ? (
+            <Btn className="flex-1" onClick={onPlan}><Sparkles size={18} /> 開始排行程</Btn>
+          ) : (
+            <Btn className="flex-1" onClick={() => setStep((s) => s + 1)}>
+              {step === 0 ? "看隊伍分析" : "看行程建議"} →
+            </Btn>
+          )}
         </div>
       </div>
     </div>
@@ -2737,6 +3188,7 @@ function SwipeDeck({ member, budget, day, slot, excludeIds, onDone, onClose }) {
   const decide = (like) => {
     if (busy.current) return;
     busy.current = true;
+    sfx(like ? "like" : "nope");
     animate(x, like ? 480 : -480, { duration: 0.3, ease: "easeIn" }).then(() => commit(like));
   };
 
@@ -3480,7 +3932,7 @@ function renderItineraryImage({ session, board, analysis }) {
   ctx.fillText(`去趣 eSIM 優惠碼　${session.coupon || "QU-XXXX"}　全館 85 折`, PAD + 32, y + 52);
   ctx.font = `700 24px ${FONT}`;
   ctx.fillStyle = "rgba(31,35,80,.7)";
-  const foot = wrapText(ctx, "出發前開通 eSIM，分頭行動時才找得到彼此。", W - PAD * 2 - 64);
+  const foot = wrapText(ctx, "出發前記得開通 eSIM，分頭行動時才找得到彼此。", W - PAD * 2 - 64);
   foot.forEach((ln, i) => ctx.fillText(ln, PAD + 32, y + 96 + i * 32));
 
   return canvas.toDataURL("image/png");
@@ -3619,6 +4071,7 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
   const buy = () => {
     setDone(true);
     setBurst(true);
+    sfx("fanfare");
     setTimeout(() => setBurst(false), 1500);
     onPurchase?.({ planKey: myPick, carrier, payDays, price: myPrice, at: Date.now() });
     toast(`已確認：${PLAN_BY_KEY[myPick].name}（${CARRIER_BY_KEY[carrier].name}），${money(myPrice)}`);
@@ -3643,7 +4096,7 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
                   <Unlock size={10} /> 行程還在調整中，下面的數字會跟著變
                 </div>
               )}
-              <p className="text-xs leading-relaxed opacity-70">下面的估算是照你們<span className="font-black">實際排出來的 {needs.spots} 個行程</span>算的，改行程數字就會跟著變。每個人選自己要的方案，全館 85 折都適用。</p>
+              <p className="text-xs leading-relaxed opacity-70">照你們<span className="font-black">實際排出來的 {needs.spots} 個行程</span>估算，每個人各自選方案，全館 85 折都適用。</p>
             </div>
             <button type="button" onClick={onClose} aria-label="關閉" className="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-[#1F2350]"><X size={15} strokeWidth={3} /></button>
           </div>
@@ -3697,11 +4150,10 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
           </div>
 
           {/* 一起買的真正好處不是折扣（折扣本來就有），而是不用共用熱點 */}
-          <div className="mt-2 rounded-2xl border-2 border-dashed border-[#1F2350] bg-[#FFF3A6] p-2.5 text-[11px] leading-relaxed">
-            <span className="font-black">💡 為什麼建議一人一張，而不是開熱點分享：</span>
+          <Fold className="mt-2" tone="#FFF3A6" icon={<span className="text-sm">💡</span>} title="為什麼建議一人一張，而不是開熱點分享？">
             熱點會受手機系統限制（SoftBank 方案的 Android 無法開熱點），而且一分流就有人沒網路。
             每日流量型每天最低 {money(salePerDay(ESIM_PLANS[0]))} 起，各自裝一張最單純。
-          </div>
+          </Fold>
 
           {/* 我的方案：這支手機只決定自己的 */}
           <div className="mt-3">
@@ -3915,7 +4367,7 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
 }
 
 /* ---------- 結算頁的輕量提醒（這時候還沒排行程，不推方案） ---------- */
-function CouponReminder({ session, onPlan, toast }) {
+function CouponReminder({ session, toast }) {
   const code = session.coupon || "QU-XXXX";
   return (
     <Card className="overflow-hidden">
@@ -3924,17 +4376,16 @@ function CouponReminder({ session, onPlan, toast }) {
         <span className="text-sm font-black">你們的 eSIM 優惠碼還在</span>
         <span className="ml-auto tm-num rounded-md border-2 border-[#1F2350] bg-white px-2 py-0.5 text-sm font-black tracking-widest">{code}</span>
       </div>
-      <div className="p-4">
-        <p className="text-sm leading-relaxed">
-          行程還沒排完，現在講哪個 eSIM 方案適合你們還太早。
-          等你們把行程排好，AI 會照實際的景點、分流時段和天數算出用量，再推薦方案——到時候這組碼會自動帶入。
-        </p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <Btn size="sm" variant="ghost" onClick={async () => toast((await copyText(code)) ? "優惠碼已複製" : `複製失敗，代碼是 ${code}`)}>
+      <div className="p-3">
+        <p className="text-sm leading-relaxed">先收著，排完行程結帳時會自動帶入。</p>
+        <div className="mt-2.5 flex gap-2">
+          <Btn size="sm" variant="ghost" className="flex-1" onClick={async () => toast((await copyText(code)) ? "優惠碼已複製" : `複製失敗，代碼是 ${code}`)}>
             <Copy size={16} /> 複製優惠碼
           </Btn>
-          <Btn size="sm" onClick={onPlan}><Sparkles size={16} /> 先去排行程</Btn>
         </div>
+        <Fold tone="#FFF8EE" className="mt-2" title="為什麼現在還不推薦方案？">
+          現在講哪個 eSIM 方案適合你們還太早。等行程排好，AI 會照實際的景點、分流時段和天數算出用量，再推薦適合的方案。
+        </Fold>
       </div>
     </Card>
   );
@@ -4033,29 +4484,35 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
 
   return (
     <div className="pb-12">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div>
+      {/* 手機上這些標籤原本要佔 3 行，合併成 2 顆，把畫面留給行程本身 */}
+      <div className="mb-3">
+        <div className="flex items-center justify-between gap-2">
           <h1 className="tm-display text-[30px] leading-tight">一起排行程</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <Chip><span className="mr-0.5 inline-block h-2 w-2 rounded-full bg-[#2F9E62]" />即時同步中・{session.players.length} 人在線</Chip>
-            <Chip>📍 {session.dest}</Chip>
-            <Chip>🌙 {tripLabel(days)}</Chip>
-            <Chip>📌 {board.length} 個地點</Chip>
-            {member && <Chip>{PERSONAS[member.persona].emoji} 依「{PERSONAS[member.persona].name}」客製</Chip>}
-            <Chip>{(BUDGETS.find((b) => b.key === session.budget) || BUDGETS[1]).icon} {(BUDGETS.find((b) => b.key === session.budget) || BUDGETS[1]).name}</Chip>
-          </div>
+          <Btn size="sm" variant="ghost" sound="back" className="shrink-0" onClick={onBack}><ChevronLeft size={16} /> 回結算頁</Btn>
         </div>
-        <Btn size="sm" variant="ghost" onClick={onBack}><ChevronLeft size={16} /> 回結算頁</Btn>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <Chip><span className="mr-0.5 inline-block h-2 w-2 rounded-full bg-[#2F9E62]" />同步中・{session.players.length} 人</Chip>
+          <Chip>📍 {session.dest}・{tripLabel(days)}・{board.length} 個地點</Chip>
+          {member && (
+            <Chip>
+              {PERSONAS[member.persona].emoji} {PERSONAS[member.persona].name}
+              ・{(BUDGETS.find((b) => b.key === session.budget) || BUDGETS[1]).name}
+            </Chip>
+          )}
+        </div>
       </div>
 
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0 space-y-3">
           {seeded > 0 && (
-            <div className="rounded-2xl border-2 border-dashed border-[#1F2350] bg-[#FFF8EE] p-3 text-xs leading-relaxed">
-              <span className="font-black">🤖 已為你們生成完整行程：{days} 天的每個時段都排好了（其中 {seeded} 個是 AI 依 4 站選擇預排的）</span>
-              ，排序已經套用你們的遊戲結果：人格偏好、預算級別，還有和你同類型旅人的評分。
-              接下來你可以自行決定是否做最小幅度的調整：拖曳換順序、刪掉不想去的，或用「AI 推薦」換上別的地點。
-            </div>
+            <Fold
+              className="border-dashed"
+              icon={<span className="text-sm">🤖</span>}
+              title={<>{days} 天的行程都排好了，其中 {seeded} 個是 AI 依你們 4 站的選擇預排的</>}
+            >
+              排序套用了你們的遊戲結果：人格偏好、預算級別，還有和你同類型旅人的評分。
+              接下來可以拖曳換順序、刪掉不想去的，或用「AI 推薦」換上別的地點。
+            </Fold>
           )}
 
           <div className="tm-noscroll -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
@@ -4116,10 +4573,7 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
                 <span className="text-3xl">🎒</span>
                 <div className="min-w-0 flex-1">
                   <div className="tm-display text-xl leading-tight">行程排好了嗎？先定版</div>
-                  <p className="mt-1 text-sm leading-relaxed">
-                    定版之後行程就固定下來，導出的圖片和網路方案都照這一版算。
-                    {locked ? "改完記得重新定版，才知道網路方案還夠不夠。" : "想改的話隨時可以解除定版。"}
-                  </p>
+                  <p className="mt-1 text-sm leading-relaxed">定版之後才能導出圖片、算網路方案。</p>
                 </div>
               </div>
               {diff?.changed && (
@@ -4138,7 +4592,7 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
                   )}
                 </div>
               )}
-              <Btn className="mt-3 w-full" disabled={!board.length} onClick={onLock}>
+              <Btn className="mt-3 w-full" sound="lock" disabled={!board.length} onClick={onLock}>
                 <Lock size={18} /> {locked ? "重新定版這份行程" : "定版這份行程"}
               </Btn>
             </Card>
@@ -4168,7 +4622,7 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
               </div>
               <button
                 type="button"
-                onClick={() => (locked.purchase ? setUnlockAsk(true) : onUnlock())}
+                onClick={() => { sfx("unlock"); return locked.purchase ? setUnlockAsk(true) : onUnlock(); }}
                 className="mt-2 w-full rounded-xl border-2 border-dashed border-[#1F2350]/40 py-2 text-xs font-bold opacity-70"
               >
                 <Unlock size={13} className="mr-1 inline" /> 解除定版來修改行程
@@ -4206,14 +4660,11 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
             </div>
           </Card>
 
-          <Card className="p-3 text-xs leading-relaxed">
-            <div className="mb-1 text-sm font-black">💡 怎麼玩</div>
-            行程已經排滿，你可以直接出發，也可以微調：卡片用握把拖曳或 ▲▼ 換順序、右側垃圾桶刪掉不想去的。
-            想換別的地點就點「AI 推薦」，右滑加入、左滑跳過，每張卡都附上網友評論與「和你同類型旅人」的平均分數。
-            存檔前 AI 會先算交通時間，排不下的自動換時段。
-            <span className="font-black">調整到滿意就按「定版」</span>——定版之後行程固定下來，才能導出圖片、算出需要多少網路。
-            想再改隨時可以解除定版，改完記得重新定版，AI 會告訴你已買的方案還夠不夠。
-          </Card>
+          <Fold tone="#FFFFFF" icon={<span className="text-sm">💡</span>} title="怎麼玩？（不看也能玩）">
+            <p>行程已經排滿，直接出發也可以。想微調：卡片用握把拖曳或 ▲▼ 換順序、右側垃圾桶刪掉不想去的。</p>
+            <p className="mt-1.5">想換地點就點「AI 推薦」，右滑加入、左滑跳過，每張卡都附上網友評論與「和你同類型旅人」的平均分數。存檔前 AI 會先算交通時間，排不下的自動換時段。</p>
+            <p className="mt-1.5"><span className="font-black">調整到滿意就按「定版」</span>，才能導出圖片、算出需要多少網路。之後想改隨時可以解除，改完記得重新定版，AI 會告訴你已買的方案還夠不夠。</p>
+          </Fold>
         </div>
       </div>
 
@@ -4293,7 +4744,10 @@ export default function App() {
   const [nodeIdx, setNodeIdx] = useState(0);
   const [history, setHistory] = useState([]);
   const [modal, setModal] = useState(null);
+  const [transition, setTransition] = useState(null);
   const [banner, setBanner] = useState(null);
+  const [sfxOn, setSfxOn] = useState(true);
+  const [bgmOn, setBgmOn] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
   const [board, setBoard] = useState([]);
   const [feed, setFeed] = useState([]);
@@ -4359,10 +4813,23 @@ export default function App() {
     if (!results) return;
     setHistory((h) => [...h.slice(0, roundIdx), { results }]);
     const nextNode = Math.min(nodeIdx + 1, MAP_NODES.length - 1);
-    setNodeIdx(nextNode);
-    setBanner(`📍 已抵達：${MAP_NODES[nextNode].name}，當前氣溫 ${MAP_NODES[nextNode].temp}`);
-    if (roundIdx < ROUNDS.length - 1) setRoundIdx((i) => i + 1);
-    else setTimeout(() => setPhase("SUMMARY"), 1500);
+    const last = roundIdx >= ROUNDS.length - 1;
+    // 轉場蓋住畫面的那 0.6 秒，才把底下的回合換掉，換題就不會閃一下
+    setTransition({
+      node: MAP_NODES[nextNode],
+      roundNo: roundIdx + 2,
+      total: ROUNDS.length,
+      last,
+      onMid: () => {
+        setNodeIdx(nextNode);
+        setBanner(`📍 已抵達：${MAP_NODES[nextNode].name}，當前氣溫 ${MAP_NODES[nextNode].temp}`);
+        if (!last) setRoundIdx((i) => i + 1);
+      },
+      onDone: () => {
+        setTransition(null);
+        if (last) setPhase("SUMMARY");
+      },
+    });
   }, [roundIdx, nodeIdx]);
 
   const restart = useCallback(() => {
@@ -4372,6 +4839,7 @@ export default function App() {
     setRoundIdx(0);
     setNodeIdx(0);
     setModal(null);
+    setTransition(null);
     setBoard([]);
     setFeed([]);
     setLocked(null);
@@ -4531,25 +4999,49 @@ export default function App() {
         }}
       >
         <div className={`mx-auto w-full px-4 ${wide ? "max-w-5xl" : "max-w-md"}`}>
-          <header className="flex items-center justify-between py-3">
-            <div className="flex items-center gap-2">
+          {/* 手機只有 390px 寬，所以整列強制不換行，次要資訊在窄螢幕先收起來 */}
+          <header className="flex flex-nowrap items-center justify-between gap-2 py-3">
+            <div className="flex shrink-0 items-center gap-2">
               <span className="tm-display grid h-10 w-10 -rotate-6 place-items-center rounded-xl border-[3px] border-[#1F2350] bg-[#FF6B35] text-xl text-white shadow-[2px_2px_0_#1F2350]">趣</span>
               <span className="leading-none">
                 <span className="tm-display block text-lg">去趣</span>
-                <span className="block text-[11px] font-bold opacity-60">TripMate</span>
+                <span className={`text-[11px] font-bold opacity-60 ${wide ? "hidden sm:block" : "block"}`}>TripMate</span>
               </span>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+              <button
+                type="button"
+                aria-label={sfxOn ? "關閉音效" : "開啟音效"}
+                aria-pressed={sfxOn}
+                onClick={() => { const v = !sfxOn; setSfxOn(v); AudioEngine.setSfx(v); }}
+                className={`grid h-7 w-7 place-items-center rounded-full border-2 border-[#1F2350] ${sfxOn ? "bg-[#1F2350] text-white" : "bg-white text-[#1F2350]/45"}`}
+              >
+                {sfxOn ? <Volume2 size={13} strokeWidth={2.6} /> : <VolumeX size={13} strokeWidth={2.6} />}
+              </button>
+              <button
+                type="button"
+                aria-label={bgmOn ? "關閉背景音樂" : "開啟背景音樂"}
+                aria-pressed={bgmOn}
+                onClick={() => { const v = !bgmOn; setBgmOn(v); AudioEngine.setBgm(v); if (v) sfx("pop"); }}
+                className={`grid h-7 w-7 place-items-center rounded-full border-2 border-[#1F2350] ${bgmOn ? "bg-[#FF6B35] text-white" : "bg-white text-[#1F2350]/45"}`}
+              >
+                <Music size={13} strokeWidth={2.6} />
+              </button>
               {wide && (
-                <div className="flex overflow-hidden rounded-full border-2 border-[#1F2350]">
-                  <button type="button" onClick={() => setPhase("SUMMARY")} className={`px-2.5 py-1 text-xs font-bold ${phase === "SUMMARY" ? "bg-[#1F2350] text-white" : "bg-white"}`}>結算</button>
-                  <button type="button" onClick={goPlan} className={`px-2.5 py-1 text-xs font-bold ${phase === "PLAN" ? "bg-[#1F2350] text-white" : "bg-white"}`}>排行程</button>
+                <div className="flex shrink-0 overflow-hidden rounded-full border-2 border-[#1F2350]">
+                  <button type="button" onClick={() => { sfx("tap"); setPhase("SUMMARY"); }} className={`px-2.5 py-1 text-[11px] font-bold ${phase === "SUMMARY" ? "bg-[#1F2350] text-white" : "bg-white"}`}>結算</button>
+                  <button type="button" onClick={() => { sfx("tap"); goPlan(); }} className={`px-2.5 py-1 text-[11px] font-bold ${phase === "PLAN" ? "bg-[#1F2350] text-white" : "bg-white"}`}>排行程</button>
                 </div>
               )}
               {session && phase !== "SETUP" && (
                 <>
-                  <Chip className="tm-num">房間 {session.code}</Chip>
-                  <Chip>{session.network === "esim" ? <Wifi size={12} /> : <WifiOff size={12} />} {session.network === "esim" ? "5G" : "3G"}</Chip>
+                  {/* 排行程／結算頁的橫向空間已經被分頁鈕吃掉，房號在窄螢幕先收起來 */}
+                  {wide ? (
+                    <span className="hidden sm:contents"><Chip className="tm-num shrink-0">房間 {session.code}</Chip></span>
+                  ) : (
+                    <Chip className="tm-num shrink-0">房間 {session.code}</Chip>
+                  )}
+                  <Chip className="shrink-0">{session.network === "esim" ? <Wifi size={12} /> : <WifiOff size={12} />} {session.network === "esim" ? "5G" : "3G"}</Chip>
                 </>
               )}
             </div>
@@ -4595,6 +5087,20 @@ export default function App() {
         <AnimatePresence>
           {modal?.type === "lag" && <LagModal key="lag" network={session.network} onDone={afterLag} />}
           {modal?.type === "hint" && <HintModal key="hint" roundIdx={roundIdx} results={modal.results} hint={modal.hint} onClose={closeHint} />}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {transition && (
+            <StationTransition
+              key={`tr-${transition.roundNo}`}
+              node={transition.node}
+              roundNo={transition.roundNo}
+              total={transition.total}
+              last={transition.last}
+              onMid={transition.onMid}
+              onDone={transition.onDone}
+            />
+          )}
         </AnimatePresence>
 
         <AnimatePresence>
