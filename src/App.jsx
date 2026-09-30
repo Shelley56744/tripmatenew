@@ -37,6 +37,7 @@ const GLOBAL_CSS = `
 .tm-num{font-variant-numeric:tabular-nums}
 .tm-noscroll::-webkit-scrollbar{display:none}
 .tm-root :focus-visible{outline:3px solid ${PERSIMMON};outline-offset:2px}
+.tm-root input[type="date"]{min-width:0;width:100%;-webkit-appearance:none;appearance:none}
 `;
 
 const INPUT =
@@ -1451,8 +1452,11 @@ function ChoiceTile({ data, active, onClick }) {
 
 function Field({ icon, label, children }) {
   return (
-    <div>
-      <div className="mb-1.5 flex items-center gap-1.5 text-sm font-black">{icon}{label}</div>
+    <div className="min-w-0">
+      <div className="mb-1.5 flex items-center gap-1.5 text-sm font-black">
+        <span className="shrink-0">{icon}</span>
+        <span className="truncate">{label}</span>
+      </div>
       {children}
     </div>
   );
@@ -1783,12 +1787,12 @@ function SetupScreen({ onStart, toast }) {
                     </Field>
                     <div className="grid grid-cols-2 gap-3">
                       <Field icon={<CalendarDays size={16} />} label="出發日期">
-                        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`${INPUT} text-sm`} />
+                        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`${INPUT} min-w-0 px-2.5 text-sm`} />
                       </Field>
                       <Field icon={<Clock size={16} />} label="旅行天數">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <StepBtn label="減少天數" onClick={() => setDays((d) => Math.max(3, d - 1))}><Minus size={16} /></StepBtn>
-                          <span className="tm-num flex-1 text-center text-sm font-black leading-tight">{tripLabel(days)}</span>
+                          <span className="tm-num flex-1 whitespace-nowrap text-center text-[13px] font-black leading-tight">{tripLabel(days)}</span>
                           <StepBtn label="增加天數" onClick={() => setDays((d) => Math.min(7, d + 1))}><Plus size={16} /></StepBtn>
                         </div>
                       </Field>
@@ -3770,7 +3774,7 @@ function SwipeDeck({ member, budget, day, slot, excludeIds, autoStart = false, o
   const toggleTag = (t) => setPrefTags((s) => (s.includes(t) ? s.filter((k) => k !== t) : s.length >= 3 ? s : [...s, t]));
 
   const startSwiping = useCallback((tags0) => {
-    const tags = tags0 || [...new Set([...prefTags, ...tagsFromKeyword(keyword)])];
+    const tags = Array.isArray(tags0) ? tags0 : [...new Set([...prefTags, ...tagsFromKeyword(keyword)])];
     const w = initTagWeights(member, tags);
     const q = recommend(w, seen.current, CARDS_PER_ROUND, ctx);
     q.forEach((p) => seen.current.add(p.id));
@@ -3889,7 +3893,7 @@ function SwipeDeck({ member, budget, day, slot, excludeIds, autoStart = false, o
               <label htmlFor="kw" className="text-sm font-black">或直接告訴 AI（選填）</label>
               <input id="kw" value={keyword} maxLength={14} onChange={(e) => setKeyword(e.target.value)} placeholder="例如：想找有底片感的老咖啡店" className={`${INPUT} mt-1.5`} />
             </div>
-            <Btn className="mt-4 w-full" onClick={startSwiping}><Sparkles size={18} /> 開始看 AI 推薦</Btn>
+            <Btn className="mt-4 w-full" onClick={() => startSwiping()}><Sparkles size={18} /> 開始看 AI 推薦</Btn>
           </Card>
         )}
 
