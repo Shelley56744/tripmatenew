@@ -4422,6 +4422,171 @@ function wrapText(ctx, text, maxWidth) {
 }
 
 /** 畫出一張可以存進相簿的行程圖；環境不支援 canvas 時回傳 null */
+/* 把趣趣直接用 canvas 畫出來（跟 Mascot 的 SVG 同一組座標，viewBox 200×200）。
+   這樣不用把 SVG 轉圖，渲染是同步的。 */
+function drawMascot(ctx, x, y, size) {
+  const u = size / 200;
+  const X = (v) => x + v * u;
+  const Y = (v) => y + v * u;
+  const S = (v) => v * u;
+  const ell = (cx, cy, rx, ry, fill, stroke, lw) => {
+    ctx.beginPath();
+    ctx.ellipse(X(cx), Y(cy), S(rx), S(ry), 0, 0, Math.PI * 2);
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = S(lw); ctx.stroke(); }
+  };
+
+  // 提把
+  ctx.beginPath();
+  roundRectPath(ctx, X(78), Y(42), S(44), S(30), S(11));
+  ctx.strokeStyle = INK; ctx.lineWidth = S(6); ctx.stroke();
+  // 手
+  ell(42, 130, 10, 15, BODY, INK, 4);
+  ell(158, 130, 10, 15, BODY, INK, 4);
+  // 身體
+  ctx.beginPath();
+  roundRectPath(ctx, X(44), Y(62), S(112), S(106), S(44));
+  ctx.fillStyle = BODY; ctx.fill();
+  ctx.strokeStyle = INK; ctx.lineWidth = S(5); ctx.stroke();
+  // 輪子
+  [72, 128].forEach((cx) => {
+    ell(cx, 172, 8, 8, INK);
+    ell(cx, 172, 3, 3, PAGE);
+  });
+  // 束帶
+  ctx.beginPath();
+  ctx.moveTo(X(64), Y(152));
+  ctx.quadraticCurveTo(X(100), Y(164), X(136), Y(152));
+  ctx.strokeStyle = "#F29A2E"; ctx.lineWidth = S(4); ctx.lineCap = "round";
+  ctx.globalAlpha = 0.7; ctx.stroke(); ctx.globalAlpha = 1;
+  // 腮紅
+  ctx.globalAlpha = 0.55;
+  ell(68, 120, 8, 5, "#FF7A6B");
+  ell(132, 120, 8, 5, "#FF7A6B");
+  ctx.globalAlpha = 1;
+  // 笑瞇眼（限動用開心的表情）
+  [[75, 89], [111, 125]].forEach(([a, b]) => {
+    ctx.beginPath();
+    ctx.moveTo(X(a), Y(106));
+    ctx.quadraticCurveTo(X((a + b) / 2), Y(97), X(b), Y(106));
+    ctx.strokeStyle = INK; ctx.lineWidth = S(4); ctx.stroke();
+  });
+  // 笑開的嘴
+  ctx.beginPath();
+  ctx.moveTo(X(87), Y(115));
+  ctx.quadraticCurveTo(X(100), Y(133), X(113), Y(115));
+  ctx.strokeStyle = INK; ctx.lineWidth = S(4); ctx.stroke();
+  ctx.lineCap = "butt";
+}
+
+/* IG 限動用的 9:16 圖。行程圖是長捲軸，丟到限動會被裁爛，所以另外畫一張。
+   內容以「我的旅遊人格」為主——那才是有人會想貼的東西，行程只當佐證。 */
+function renderStoryImage({ session, board, analysis }) {
+  if (typeof document === "undefined" || !document.createElement) return null;
+  const W = 1080;
+  const H = 1920;
+  const canvas = document.createElement("canvas");
+  const dpr = 1;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext ? canvas.getContext("2d") : null;
+  if (!ctx) return null;
+
+  const FONT = "'Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif";
+  const me = analysis?.members?.find((m) => m.player.isUser);
+  const P = me ? PERSONAS[me.persona] : PERSONAS.capybara;
+
+  // 背景：品牌米底 + 點陣
+  ctx.fillStyle = PAGE;
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "rgba(31,35,80,.07)";
+  for (let y = 24; y < H; y += 26) {
+    for (let x = 24; x < W; x += 26) {
+      ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  // 人格色的暈開底
+  const g = ctx.createRadialGradient(W / 2, 640, 80, W / 2, 640, 620);
+  g.addColorStop(0, `${P.soft}`);
+  g.addColorStop(1, "rgba(255,232,209,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 200, W, 900);
+
+  ctx.textAlign = "center";
+
+  // 品牌（避開 IG 頂部的頭像列）
+  ctx.fillStyle = INK;
+  ctx.font = `900 34px ${FONT}`;
+  ctx.fillText("去趣 TripMate", W / 2, 330);
+
+  // 趣趣
+  drawMascot(ctx, W / 2 - 150, 380, 300);
+
+  // 人格
+  ctx.fillStyle = "rgba(31,35,80,.6)";
+  ctx.font = `700 34px ${FONT}`;
+  ctx.fillText("我的旅遊人格是", W / 2, 760);
+
+  ctx.fillStyle = P.color;
+  ctx.font = `900 88px ${FONT}`;
+  ctx.fillText(`${P.emoji} ${P.name}`, W / 2, 866);
+
+  ctx.fillStyle = INK;
+  ctx.font = `700 33px ${FONT}`;
+  const quoteLines = wrapText(ctx, `「${P.quote}」`, W - 160);
+  quoteLines.slice(0, 2).forEach((ln, i) => ctx.fillText(ln, W / 2, 932 + i * 42));
+
+  // 分隔
+  ctx.strokeStyle = "rgba(31,35,80,.25)";
+  ctx.lineWidth = 4;
+  ctx.setLineDash([14, 12]);
+  ctx.beginPath(); ctx.moveTo(140, 1000); ctx.lineTo(W - 140, 1000); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 行程
+  ctx.fillStyle = INK;
+  ctx.font = `900 72px ${FONT}`;
+  ctx.fillText(session.dest, W / 2, 1090);
+  ctx.fillStyle = "rgba(31,35,80,.62)";
+  ctx.font = `700 34px ${FONT}`;
+  ctx.fillText(`${tripLabel(session.days || 5)}　·　${session.players.length} 人　·　${board.length} 個地點`, W / 2, 1146);
+
+  // 精選三個地點（評分最高的）
+  const tops = board
+    .map((i) => POI_BY_ID[i.poiId])
+    .filter(Boolean)
+    .sort((a, b) => b.rating - a.rating)
+    .filter((poi, i, arr) => arr.findIndex((x) => x.id === poi.id) === i)
+    .slice(0, 3);
+  let cy = 1232;
+  tops.forEach((poi) => {
+    const label = `${poi.emoji} ${poi.name}`;
+    ctx.font = `900 38px ${FONT}`;
+    const w = ctx.measureText(label).width + 68;
+    ctx.beginPath();
+    roundRectPath(ctx, (W - w) / 2, cy - 44, w, 76, 38);
+    ctx.fillStyle = "#fff"; ctx.fill();
+    ctx.strokeStyle = INK; ctx.lineWidth = 4; ctx.stroke();
+    ctx.fillStyle = INK;
+    ctx.fillText(label, W / 2, cy + 6);
+    cy += 88;
+  });
+
+  // 邀請卡：IG 限動上下各約 250px 會被介面蓋掉，所以收在 1630 以內
+  ctx.beginPath();
+  roundRectPath(ctx, 140, 1478, W - 280, 146, 40);
+  ctx.fillStyle = INK; ctx.fill();
+  ctx.fillStyle = "#FFC93C";
+  ctx.font = `700 30px ${FONT}`;
+  ctx.fillText("也想測測看？房間代碼", W / 2, 1534);
+  ctx.fillStyle = "#fff";
+  ctx.font = `900 58px ${FONT}`;
+  ctx.fillText(session.code || "OSK-XXXX", W / 2, 1596);
+
+  ctx.textAlign = "left";
+  return canvas.toDataURL("image/png");
+}
+
 function renderItineraryImage({ session, board, analysis }) {
   // 沒有 DOM / canvas 的環境（SSR、測試）直接放棄，由呼叫端顯示提示
   if (typeof document === "undefined" || !document.createElement) return null;
@@ -4591,17 +4756,21 @@ function renderItineraryImage({ session, board, analysis }) {
 }
 
 function ExportSheet({ session, board, analysis, onClose, onSeePlans, toast }) {
-  const [url, setUrl] = useState(null);
+  // 兩種尺寸：行程圖是長捲軸（給 LINE 群看細節），限動圖是 9:16（給 IG 貼）
+  const [kind, setKind] = useState("plan");
+  const [urls, setUrls] = useState({ plan: null, story: null });
   const [failed, setFailed] = useState(false);
+  const url = urls[kind];
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         if (document.fonts?.ready) await document.fonts.ready;
-        const out = renderItineraryImage({ session, board, analysis });
+        const plan = renderItineraryImage({ session, board, analysis });
+        const story = renderStoryImage({ session, board, analysis });
         if (!alive) return;
-        if (out) setUrl(out);
+        if (plan || story) setUrls({ plan, story });
         else setFailed(true);
       } catch {
         if (alive) setFailed(true);
@@ -4610,15 +4779,40 @@ function ExportSheet({ session, board, analysis, onClose, onSeePlans, toast }) {
     return () => { alive = false; };
   }, [session, board, analysis]);
 
+  const fileName = kind === "story" ? `去趣-${session.dest}限動.png` : `去趣-${session.dest}行程.png`;
+
   const save = () => {
     if (!url) return;
     const a = document.createElement("a");
     a.href = url;
-    a.download = `去趣-${session.dest}行程.png`;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
     toast("圖片已下載，手機上也可以長按圖片存到相簿");
+  };
+
+  // 手機瀏覽器的原生分享面板裡就有 Instagram；桌機沒有這個 API，退回下載。
+  const shareImage = async () => {
+    if (!url) return;
+    sfx("tap");
+    try {
+      const blob = await (await fetch(url)).blob();
+      const file = new File([blob], fileName, { type: "image/png" });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          text: kind === "story"
+            ? `我的旅遊人格出爐了！${session.dest} ${tripLabel(session.days || 5)} #去趣TripMate`
+            : `我們的${session.dest}行程排好了 #去趣TripMate`,
+        });
+        return;
+      }
+    } catch (e) {
+      if (e?.name === "AbortError") return; // 使用者自己取消，不用報錯
+    }
+    save();
+    toast(kind === "story" ? "已下載，打開 IG 限動選這張就可以貼了" : "已下載，可以直接傳到 LINE 群");
   };
 
   return (
@@ -4629,14 +4823,35 @@ function ExportSheet({ session, board, analysis, onClose, onSeePlans, toast }) {
             <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full border-[3px] border-[#1F2350] bg-[#FFC93C]"><ImageDown size={16} /></div>
             <div className="min-w-0 flex-1">
               <div className="tm-display text-xl leading-tight">行程出爐，存一張帶著走</div>
-              <p className="text-xs leading-relaxed opacity-70">存進相簿，沒網路也看得到。長按圖片也可以直接儲存或轉傳到 LINE 群組。</p>
+              <p className="text-xs leading-relaxed opacity-70">
+                {kind === "story" ? "9:16 直式，貼 IG 限動剛剛好。" : "存進相簿，沒網路也看得到。"}
+              </p>
             </div>
             <button type="button" onClick={onClose} aria-label="關閉" className="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-[#1F2350]"><X size={15} strokeWidth={3} /></button>
           </div>
 
-          <div className="mt-3 max-h-[46vh] overflow-y-auto rounded-2xl border-2 border-[#1F2350]/20 bg-[#FFF8EE] p-2">
+          {/* 尺寸切換 */}
+          <div className="mt-3 flex gap-1.5">
+            {[
+              { key: "plan", label: "行程圖", note: "傳 LINE 群" },
+              { key: "story", label: "IG 限動", note: "9:16 直式" },
+            ].map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => { sfx("tap"); setKind(t.key); }}
+                aria-pressed={kind === t.key}
+                className={`flex-1 rounded-xl border-[3px] border-[#1F2350] px-2 py-1.5 text-center ${kind === t.key ? "bg-[#1F2350] text-white shadow-[3px_3px_0_#FF6B35]" : "bg-white"}`}
+              >
+                <span className="block text-xs font-black">{t.label}</span>
+                <span className="block text-[10px] font-bold opacity-60">{t.note}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-2 max-h-[46vh] overflow-y-auto rounded-2xl border-2 border-[#1F2350]/20 bg-[#FFF8EE] p-2">
             {url ? (
-              <img src={url} alt="行程圖片預覽" className="w-full rounded-xl" />
+              <img src={url} alt={kind === "story" ? "限動圖片預覽" : "行程圖片預覽"} className={`rounded-xl ${kind === "story" ? "mx-auto w-2/3" : "w-full"}`} />
             ) : failed ? (
               <div className="p-6 text-center text-sm font-bold opacity-60">這個環境不支援產生圖片，請改用截圖保存。</div>
             ) : (
@@ -4647,7 +4862,12 @@ function ExportSheet({ session, board, analysis, onClose, onSeePlans, toast }) {
           </div>
 
           <div className="mt-4 grid gap-2">
-            <Btn className="w-full" disabled={!url} onClick={save}><Download size={18} /> 儲存行程圖片</Btn>
+            <Btn className="w-full" disabled={!url} onClick={shareImage}>
+              <Share2 size={18} /> {kind === "story" ? "分享到 IG 限動" : "分享到 LINE 群組"}
+            </Btn>
+            <Btn variant="ghost" className="w-full" disabled={!url} onClick={save}>
+              <Download size={18} /> 只要存到相簿
+            </Btn>
             <Btn variant="sun" className="w-full" onClick={onSeePlans}>
               <Wifi size={18} /> 下一步：看這份行程需要多少網路
             </Btn>
