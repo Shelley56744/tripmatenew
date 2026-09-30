@@ -194,6 +194,32 @@ const AudioEngine = (() => {
       tone(b, { f: 440, type: "square", dur: 0.11, vol: 0.09 });
       tone(b, { f: 330, type: "square", dur: 0.18, vol: 0.09, at: 0.12 });
     },
+    // 連線中：兩聲握手嗶
+    dial: (b) => {
+      tone(b, { f: 1180, type: "square", dur: 0.05, vol: 0.06 });
+      tone(b, { f: 880, type: "square", dur: 0.05, vol: 0.055, at: 0.09 });
+    },
+    // 重試：很輕的一聲，每隔幾百毫秒來一次才有「還在轉」的感覺
+    retry: (b) => tone(b, { f: 760, to: 700, type: "square", dur: 0.035, vol: 0.035 }),
+    // 訊號斷裂的雜訊
+    glitch: (b) => {
+      noise(b, { dur: 0.2, vol: 0.1, from: 3200, to: 900 });
+      tone(b, { f: 620, to: 210, type: "sawtooth", dur: 0.16, vol: 0.055, at: 0.03 });
+      noise(b, { dur: 0.1, vol: 0.06, from: 1600, to: 500, at: 0.22 });
+    },
+    // 載入失敗：往下掉，收在一記悶響
+    fail: (b) => {
+      tone(b, { f: 392, type: "square", dur: 0.14, vol: 0.09 });
+      tone(b, { f: 311, type: "square", dur: 0.16, vol: 0.085, at: 0.13 });
+      tone(b, { f: 233, type: "square", dur: 0.3, vol: 0.08, at: 0.27 });
+      tone(b, { f: 90, to: 55, type: "sine", dur: 0.5, vol: 0.12, at: 0.3 });
+    },
+    // 出發：往上衝的風切 + 爬升音
+    takeoff: (b) => {
+      noise(b, { dur: 0.7, vol: 0.1, from: 300, to: 3400 });
+      tone(b, { f: 180, to: 720, type: "triangle", dur: 0.65, vol: 0.11 });
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(b, { f, type: "triangle", dur: 0.3, vol: 0.1, at: 0.6 + i * 0.09 }));
+    },
   };
 
   /* ---------- 背景音樂：4 小節循環，F – C – Dm – B♭ ---------- */
@@ -1627,6 +1653,107 @@ const FOLLOW_OFFSET = [
 
 /* 回合之間的站點轉場：蓋住畫面 → 換掉底下的題目 → 拉開
    （朋友回饋「中間可以穿插動畫」，順便讓換題不那麼突然） */
+/* 出發開場：從快測直接跳進第 1 題太生硬，這裡補一段「旅程開始」的儀式感 */
+function TripOpening({ session, onDone }) {
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+  const node = MAP_NODES[0];
+
+  useEffect(() => {
+    sfx("takeoff");
+    const a = setTimeout(() => sfx("arrive"), 1500);
+    const b = setTimeout(() => doneRef.current?.(), 3200);
+    return () => { clearTimeout(a); clearTimeout(b); };
+  }, []);
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[70] overflow-hidden"
+      onClick={() => doneRef.current?.()}
+      role="button"
+      tabIndex={0}
+      aria-label="跳過開場"
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") doneRef.current?.(); }}
+    >
+      <motion.div
+        className="absolute -inset-x-10 inset-y-0 flex flex-col items-center justify-center gap-3 px-12"
+        style={{
+          background: INK,
+          backgroundImage: "radial-gradient(#FFFFFF1F 1.4px, transparent 1.5px)",
+          backgroundSize: "20px 20px",
+        }}
+        initial={{ x: "112%", skewX: -7 }}
+        animate={{ x: "0%", skewX: 0 }}
+        exit={{ x: "-112%", skewX: 7 }}
+        transition={{ type: "tween", ease: [0.7, 0, 0.2, 1], duration: 0.55 }}
+      >
+        {/* 飛機從左下飛到右上，帶出目的地 */}
+        <motion.div
+          className="text-5xl"
+          initial={{ x: -110, y: 70, opacity: 0, rotate: -20 }}
+          animate={{ x: 0, y: 0, opacity: 1, rotate: 0 }}
+          transition={{ type: "spring", stiffness: 170, damping: 16, delay: 0.35 }}
+        >
+          ✈️
+        </motion.div>
+
+        <motion.div
+          className="flex flex-col items-center gap-1 text-center"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.55, duration: 0.3 }}
+        >
+          <span className="rounded-full border-2 border-[#FFC93C] px-3 py-0.5 text-[11px] font-bold tracking-[0.25em] text-[#FFC93C]">
+            旅程開始
+          </span>
+          <span className="tm-display text-[34px] leading-tight text-white">{session.dest}</span>
+          <span className="tm-num text-sm font-bold text-white/60">
+            {fmtDate(session.date)} 出發 · {tripLabel(session.days)}
+          </span>
+        </motion.div>
+
+        {/* 隊友一個個入場 */}
+        <div className="mt-1 flex gap-2">
+          {session.players.map((p, i) => (
+            <motion.div
+              key={p.id}
+              initial={{ scale: 0, y: 18 }}
+              animate={{ scale: 1, y: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 15, delay: 0.85 + i * 0.11 }}
+            >
+              <Avatar p={p} size={38} />
+            </motion.div>
+          ))}
+        </div>
+
+        {/* 第 1 站在後半段才出現，接住下一個畫面 */}
+        <motion.div
+          className="mt-4 flex items-center gap-2.5 rounded-2xl border-[3px] border-[#FFC93C]/50 px-4 py-2.5"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.5, duration: 0.35 }}
+        >
+          <span className="text-3xl">{node.emoji}</span>
+          <span className="text-left leading-tight">
+            <span className="block text-[10.5px] font-bold tracking-widest text-[#FFC93C]">第 1 站 · 共 {ROUNDS.length} 站</span>
+            <span className="tm-display block text-lg text-white">{node.name}</span>
+            <span className="block text-[11px] font-bold text-white/50">現在氣溫 {node.temp}</span>
+          </span>
+        </motion.div>
+
+        <motion.span
+          className="absolute bottom-10 text-[11px] font-bold text-white/35"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 2 }}
+        >
+          點一下跳過
+        </motion.span>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function StationTransition({ node, roundNo, total, last, onMid, onDone }) {
   const midRef = useRef(onMid);
   const doneRef = useRef(onDone);
@@ -1814,15 +1941,37 @@ const LAG_STEPS = [
   "頁面載入完成：整理券已全數發完 😵",
 ];
 
+/* 訊號格會一直閃，讓這 6 秒看起來真的在掙扎 */
+function SignalBars({ dead }) {
+  return (
+    <span className="inline-flex items-end gap-[2px]" aria-hidden="true">
+      {[5, 8, 11, 14].map((h, i) => (
+        <motion.span
+          key={h}
+          className="w-[3px] rounded-[1px]"
+          style={{ height: h, background: i === 0 ? "#E8453C" : "#1F2350" }}
+          animate={dead
+            ? { opacity: i === 0 ? 0.85 : 0.15 }
+            : { opacity: i === 0 ? [0.9, 0.2, 0.9, 0.5, 0.9] : [0.15, 0.15, 0.35, 0.15, 0.15] }}
+          transition={dead ? { duration: 0.3 } : { repeat: Infinity, duration: 1.2 + i * 0.25, ease: "easeInOut" }}
+        />
+      ))}
+    </span>
+  );
+}
+
 function LagModal({ network, onDone }) {
   const [step, setStep] = useState(0);
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
 
   useEffect(() => {
-    if (step >= LAG_STEPS.length - 1) { sfx("warn"); return undefined; }
+    if (step >= LAG_STEPS.length - 1) { sfx("fail"); return undefined; }
+    sfx(step === 0 ? "dial" : "glitch");
+    // 每 550ms 補一聲很輕的重試音，不然這 6 秒只有畫面在動、耳朵是空的
+    const beat = setInterval(() => sfx("retry"), 550);
     const t = setTimeout(() => setStep((s) => s + 1), 1800);
-    return () => clearTimeout(t);
+    return () => { clearInterval(beat); clearTimeout(t); };
   }, [step]);
 
   const last = step === LAG_STEPS.length - 1;
@@ -1838,14 +1987,15 @@ function LagModal({ network, onDone }) {
       <motion.div initial={{ scale: 0.85, y: 20 }} animate={{ scale: 1, y: 0 }} className="w-full max-w-sm">
         <Card className="p-5 text-center">
           <div className="flex items-center justify-center gap-2 text-sm font-black text-[#E8453C]">
-            <Signal size={16} /> 3G　訊號 1 格　{net?.name}
+            <SignalBars dead={last} /> 3G　訊號 {last ? "0" : "1"} 格　{net?.name}
           </div>
+          {/* 轉圈會時快時慢、偶爾抖一下，看起來才像卡住而不是在讀取 */}
           <motion.div
             className="mx-auto mt-4 w-fit"
-            animate={{ rotate: 360 }}
-            transition={{ repeat: Infinity, duration: 1.1, ease: "linear" }}
+            animate={last ? { rotate: 0, scale: 0.9, opacity: 0.35 } : { rotate: [0, 190, 210, 360], x: [0, 0, -2, 2, 0] }}
+            transition={last ? { duration: 0.3 } : { repeat: Infinity, duration: 1.6, ease: "linear", times: [0, 0.45, 0.62, 1] }}
           >
-            <Loader size={54} strokeWidth={3} />
+            <Loader size={54} strokeWidth={3} color={last ? "#E8453C" : INK} />
           </motion.div>
           <AnimatePresence mode="wait">
             <motion.p key={step} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="mt-4 text-[15px] font-bold leading-relaxed">
@@ -1853,7 +2003,11 @@ function LagModal({ network, onDone }) {
             </motion.p>
           </AnimatePresence>
           <div className="mt-3 h-3 overflow-hidden rounded-full border-[3px] border-[#1F2350] bg-white">
-            <motion.div className="h-full bg-[#E8453C]" animate={{ width: ["8%", "37%", "37%", "100%"][step] || "8%" }} transition={{ duration: 1.4 }} />
+            <motion.div
+              className="h-full bg-[#E8453C]"
+              animate={{ width: ["8%", "37%", "100%"][step] || "8%" }}
+              transition={{ duration: last ? 0.4 : 1.5, ease: last ? "easeOut" : "easeInOut" }}
+            />
           </div>
           <p className="mt-3 text-xs leading-relaxed opacity-60">
             人潮擁擠的園區裡，共用熱點和漫遊降速都會變成這樣。這 6 秒就是別人搶到整理券的時間。
@@ -4391,7 +4545,7 @@ function CouponReminder({ session, toast }) {
   );
 }
 
-function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorderSlot, onMoveItem, onBack, locked, onLock, onUnlock, onPurchase, toast }) {
+function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorderSlot, onMoveItem, onBack, locked, lockVote, onProposeLock, onCancelLock, onBusyChange, onUnlock, onPurchase, toast }) {
   const days = session.days || 5;
   const planDays = useMemo(() => buildPlanDays(days), [days]);
   const [day, setDay] = useState(Math.min(2, days));
@@ -4403,6 +4557,15 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
   const [now, setNow] = useState(() => Date.now());
   // 定版中＝沒有解除過，或解除後又重新定版
   const isLocked = Boolean(locked) && !locked.unlockedAt;
+  const voting = Boolean(lockVote);
+  // 投票期間先凍結，不然會有人邊投票邊改，投完的版本就不是大家看到的那版
+  const frozen = isLocked || voting;
+  // 有任何彈窗開著就通知上層暫停隊友的模擬修改
+  useEffect(() => {
+    onBusyChange?.(Boolean(deck || sheet || review || alert || unlockAsk));
+    return () => onBusyChange?.(false);
+  }, [deck, sheet, review, alert, unlockAsk, onBusyChange]);
+
   const diff = useMemo(
     () => (locked && locked.unlockedAt ? comparePlan(locked, board, session, analysis) : null),
     [locked, board, session, analysis],
@@ -4546,7 +4709,7 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
                   authorOf={authorOf}
                   now={now}
                   persona={member?.persona}
-                  readOnly={isLocked}
+                  readOnly={frozen}
                   onOpenDeck={() => setDeck({ day, slot })}
                   onReorder={(next) => handleReorder(day, slot, next)}
                   onRemove={onRemove}
@@ -4567,13 +4730,49 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
           </AnimatePresence>
 
           {/* 行程要先定版，之後的導出與方案才有意義 */}
-          {!isLocked ? (
+          {voting ? (
+            <Card className="p-4" style={{ background: "#ECE5FF" }}>
+              <div className="flex items-start gap-3">
+                <span className="text-3xl">🗳️</span>
+                <div className="min-w-0 flex-1">
+                  <div className="tm-display text-xl leading-tight">
+                    等待隊友同意定版　{lockVote.agreed.length}／{session.players.length}
+                  </div>
+                  <p className="mt-1 text-sm leading-relaxed">行程是大家的，全隊都同意才會定下來。等待期間行程先凍結。</p>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {session.players.map((p) => {
+                  const yes = lockVote.agreed.includes(p.id);
+                  return (
+                    <div
+                      key={p.id}
+                      className={`flex items-center gap-1.5 rounded-xl border-2 border-[#1F2350] px-2 py-1.5 ${yes ? "bg-[#E3F5EA]" : "bg-white/60"}`}
+                    >
+                      <Avatar p={p} size={24} />
+                      <span className="text-xs font-bold">{p.isUser ? "你" : p.name}</span>
+                      {yes
+                        ? <Check size={14} strokeWidth={3.5} className="text-[#1F7A55]" />
+                        : <ThinkingDots small />}
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => { sfx("back"); onCancelLock(); }}
+                className="mt-3 w-full rounded-xl border-2 border-dashed border-[#1F2350]/40 py-2 text-xs font-bold opacity-70"
+              >
+                取消提議，繼續調整行程
+              </button>
+            </Card>
+          ) : !isLocked ? (
             <Card className="p-4" style={{ background: "#FFE0B8" }}>
               <div className="flex items-start gap-3">
                 <span className="text-3xl">🎒</span>
                 <div className="min-w-0 flex-1">
                   <div className="tm-display text-xl leading-tight">行程排好了嗎？先定版</div>
-                  <p className="mt-1 text-sm leading-relaxed">定版之後才能導出圖片、算網路方案。</p>
+                  <p className="mt-1 text-sm leading-relaxed">定版之後行程就不會再變動，才能導出圖片、算網路方案。</p>
                 </div>
               </div>
               {diff?.changed && (
@@ -4592,16 +4791,17 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
                   )}
                 </div>
               )}
-              <Btn className="mt-3 w-full" sound="lock" disabled={!board.length} onClick={onLock}>
-                <Lock size={18} /> {locked ? "重新定版這份行程" : "定版這份行程"}
+              <Btn className="mt-3 w-full" disabled={!board.length} onClick={onProposeLock}>
+                <Lock size={18} /> {locked ? "重新提議定版" : "提議定版"}
               </Btn>
+              <p className="mt-1.5 text-center text-[11px] font-bold opacity-55">送出後要全隊 {session.players.length} 人都同意才會定下來</p>
             </Card>
           ) : (
             <Card className="p-4" style={{ background: "#E3F5EA" }}>
               <div className="flex items-start gap-3">
                 <span className="text-3xl">🔒</span>
                 <div className="min-w-0 flex-1">
-                  <div className="tm-display text-xl leading-tight">行程已定版</div>
+                  <div className="tm-display text-xl leading-tight">行程已定版　<span className="text-xs font-black text-[#1F7A55]">全隊 {session.players.length} 人同意</span></div>
                   <p className="mt-1 text-xs leading-relaxed opacity-75">
                     {new Date(locked.at).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                     ・{locked.spots} 個地點・每人每天約 {locked.gbPerDay}GB
@@ -4745,6 +4945,7 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [modal, setModal] = useState(null);
   const [transition, setTransition] = useState(null);
+  const [opening, setOpening] = useState(null);
   const [banner, setBanner] = useState(null);
   const [sfxOn, setSfxOn] = useState(true);
   const [bgmOn, setBgmOn] = useState(false);
@@ -4753,6 +4954,10 @@ export default function App() {
   const [feed, setFeed] = useState([]);
   // 定版快照：行程定下來之後才算網路方案，否則「買的夠不夠用」永遠沒有答案
   const [locked, setLocked] = useState(null);
+  // 定版提議：行程是大家的，所以要全隊同意才鎖得起來
+  const [lockVote, setLockVote] = useState(null);
+  // 使用者正開著滑卡／方案單／對話框時，隊友也先別動，不然會在背後抽換
+  const [planBusy, setPlanBusy] = useState(false);
   const pendingRef = useRef(null);
   const boardRef = useRef(board);
   boardRef.current = board;
@@ -4789,6 +4994,8 @@ export default function App() {
     setLocked(null);
     setBanner(`📍 出發：${MAP_NODES[0].name}，當前氣溫 ${MAP_NODES[0].temp}`);
     setPhase("GAME");
+    // 開場動畫蓋在遊戲畫面上，播完才露出第 1 題
+    setOpening({ ...setup });
   }, []);
 
   const handleSubmit = useCallback((results) => {
@@ -4840,6 +5047,8 @@ export default function App() {
     setNodeIdx(0);
     setModal(null);
     setTransition(null);
+    setOpening(null);
+    setLockVote(null);
     setBoard([]);
     setFeed([]);
     setLocked(null);
@@ -4917,12 +5126,54 @@ export default function App() {
       spots: needs.spots,
       purchase: prev?.purchase || null, // 已買過就沿用，只是行程重新定版
     }));
+    sfx("lock");
     pushFeed("ai", `行程已定版：${needs.spots} 個地點，每人每天約 ${needs.gbPerDay}GB。`);
-    toast("行程已定版，網路方案會照這一版計算");
+    toast("全隊都同意了，行程已定版");
   }, [session, analysis, pushFeed, toast]);
+
+  const proposeLock = useCallback(() => {
+    if (!session || !boardRef.current.length) return;
+    setLockVote({ at: Date.now(), by: "me", agreed: ["me"] });
+    pushFeed("me", "你提議把這份行程定版，等大家點同意。");
+    toast("已送出定版提議，行程先凍結");
+  }, [session, pushFeed, toast]);
+
+  const cancelLock = useCallback(() => {
+    setLockVote(null);
+    pushFeed("me", "你取消了定版提議，行程可以繼續改。");
+    toast("已取消定版提議");
+  }, [pushFeed, toast]);
+
+  // 隊友陸續按同意（Mock）。用 voteAt 當這一輪投票的識別，重開一輪才會重跑
+  const voteAt = lockVote?.at || 0;
+  useEffect(() => {
+    if (!voteAt || !session) return undefined;
+    const mates = session.players.filter((p) => !p.isUser);
+    let acc = 900;
+    const timers = mates.map((m) => {
+      acc += 600 + Math.random() * 1000;
+      return setTimeout(() => {
+        sfx("select");
+        setLockVote((v) => (v && v.at === voteAt && !v.agreed.includes(m.id)
+          ? { ...v, agreed: [...v.agreed, m.id] }
+          : v));
+        pushFeed(m.id, `${m.name} 同意定版 👍`);
+      }, acc);
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [voteAt, session, pushFeed]);
+
+  // 全員到齊才真的鎖定
+  useEffect(() => {
+    if (!lockVote || !session) return undefined;
+    if (lockVote.agreed.length < session.players.length) return undefined;
+    const t = setTimeout(() => { lockPlan(); setLockVote(null); }, 700);
+    return () => clearTimeout(t);
+  }, [lockVote, session, lockPlan]);
 
   const unlockPlan = useCallback(() => {
     setLocked((prev) => (prev ? { ...prev, unlockedAt: Date.now() } : prev));
+    setLockVote(null);
     toast("已解除定版，可以繼續調整行程");
   }, [toast]);
 
@@ -4957,8 +5208,11 @@ export default function App() {
   }, [addPlanEntries, pushFeed, session]);
 
   // 隊友的即時修改（Mock WebSocket 廣播）
+  // 定版中或正在投票時必須停手，否則「定下來的行程」根本定不住，
+  // 已經算好的網路用量也會對不上。
+  const planFrozen = (Boolean(locked) && !locked.unlockedAt) || Boolean(lockVote) || planBusy;
   useEffect(() => {
-    if (phase !== "PLAN" || !session) return undefined;
+    if (phase !== "PLAN" || !session || planFrozen) return undefined;
     const mates = session.players.filter((p) => !p.isUser);
     if (!mates.length) return undefined;
     const planDays = buildPlanDays(session.days);
@@ -4982,7 +5236,7 @@ export default function App() {
       toast(`${mate.name} 把「${poi.name}」加進 Day ${target.day} ${target.slot}`);
     }, 12000);
     return () => clearInterval(id);
-  }, [phase, session, addPlanEntries, removePlanItem, toast]);
+  }, [phase, session, planFrozen, addPlanEntries, removePlanItem, toast]);
 
   const wide = phase === "SUMMARY" || phase === "PLAN";
 
@@ -5076,7 +5330,10 @@ export default function App() {
               onMoveItem={moveItem}
               onBack={() => setPhase("SUMMARY")}
               locked={locked}
-              onLock={lockPlan}
+              lockVote={lockVote}
+              onProposeLock={proposeLock}
+              onCancelLock={cancelLock}
+              onBusyChange={setPlanBusy}
               onUnlock={unlockPlan}
               onPurchase={recordPurchase}
               toast={toast}
@@ -5087,6 +5344,10 @@ export default function App() {
         <AnimatePresence>
           {modal?.type === "lag" && <LagModal key="lag" network={session.network} onDone={afterLag} />}
           {modal?.type === "hint" && <HintModal key="hint" roundIdx={roundIdx} results={modal.results} hint={modal.hint} onClose={closeHint} />}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {opening && <TripOpening key="opening" session={opening} onDone={() => setOpening(null)} />}
         </AnimatePresence>
 
         <AnimatePresence>
