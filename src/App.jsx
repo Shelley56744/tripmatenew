@@ -1059,7 +1059,7 @@ function Btn({ variant = "primary", size = "md", className = "", disabled, sound
 }
 
 /* 次要說明摺起來：資訊還留著，但不會一進畫面就整面壓上來 */
-function Fold({ title, icon, defaultOpen = false, tone = "#FFF8EE", className = "", children }) {
+function Fold({ title, icon, defaultOpen = false, tone = "#FFF8EE", className = "", bodyClass = "opacity-80", children }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className={`overflow-hidden rounded-2xl border-2 border-[#1F2350] ${className}`} style={{ background: tone }}>
@@ -1082,7 +1082,7 @@ function Fold({ title, icon, defaultOpen = false, tone = "#FFF8EE", className = 
             transition={{ duration: 0.22, ease: "easeOut" }}
             className="overflow-hidden"
           >
-            <div className="px-3 pb-3 text-xs leading-relaxed opacity-80">{children}</div>
+            <div className={`px-3 pb-3 text-xs leading-relaxed ${bodyClass}`}>{children}</div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -4681,6 +4681,9 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
   const [done, setDone] = useState(Boolean(bought));
   const [agreed, setAgreed] = useState(Boolean(bought)); // 買過就等於確認過
   const [showAllTerms, setShowAllTerms] = useState(false);
+  // 這張單原本一路捲到底，把「說服 / 選擇 / 結帳」三件事混在一起。
+  // 切成兩步之後，每一屏只問一個問題。
+  const [buyStep, setBuyStep] = useState(0);
   const [burst, setBurst] = useState(false);
   const me = session.players.find((p) => p.isUser);
 
@@ -4732,7 +4735,7 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 overflow-y-auto bg-[#1F2350]/80 px-4 py-6">
       <motion.div initial={{ y: 26, scale: 0.96 }} animate={{ y: 0, scale: 1 }} className="mx-auto w-full max-w-md">
-        <Card className="relative p-4">
+        <Card className="relative p-4 pb-24">
           <Burst show={burst} />
           <div className="flex items-start gap-2">
             <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full border-[3px] border-[#1F2350] bg-[#7CC6FE]"><Gauge size={16} /></div>
@@ -4772,6 +4775,9 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
             </div>
           )}
 
+          {/* ========== 第 1 步：你需要多少、要買哪個 ========== */}
+          {!done && buyStep === 0 && (
+          <>
           {/* 分流當主標：這是唯一「屬於他們這一團」的理由，比 GB 數字有畫面 */}
           {needs.groups > 1 && (
             <div className="mt-3 rounded-2xl border-[3px] border-[#1F2350] bg-[#F3EEFF] p-3">
@@ -4866,11 +4872,12 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
                 );
               })}
             </div>
-            <div className="mt-2 rounded-xl border-2 border-[#1F2350]/20 bg-white p-2.5">
-              <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-black">
-                <Signal size={13} /> 想用哪家的網路？
-                <span className="font-bold opacity-50">同價格，訊號特性不同</span>
-              </div>
+            <Fold
+              className="mt-2"
+              tone="#FFFFFF"
+              bodyClass=""
+              title={<>想用哪家電信商？<span className="ml-1 font-bold opacity-55">目前：{CARRIER_BY_KEY[carrier].name}・同價格</span></>}
+            >
               <div className="flex gap-1.5">
                 {ESIM_CARRIERS.map((c) => (
                   <button
@@ -4895,16 +4902,30 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
                   : <><span className="font-black">{CARRIER_BY_KEY[carrier].name}：</span>{CARRIER_BY_KEY[carrier].fit}</>}
                 <div className="mt-1 text-[#B8440E]">⚠️ {CARRIER_BY_KEY[carrier].caveat}</div>
               </div>
-            </div>
-            <div className="mt-1.5 flex items-baseline gap-2 rounded-xl bg-[#FFF8EE] px-2.5 py-1.5">
-              <span className="text-[11px] font-black">你要付</span>
-              <span className="tm-num text-lg font-black text-[#FF6B35]">{money(myPrice)}</span>
-              <span className="text-[10.5px] font-bold opacity-60">
-                {payDays} 天方案 · 已折 {money(mySaved)}
+            </Fold>
+          </div>
+
+          <Fold className="mt-3" tone="#FFFFFF" title="方案定價說明">
+            規格與商品說明照去趣官網。每日 500MB（NT$22／原價 NT$26）與吃到飽（NT$81 起／原價 NT$95）為官方標價，中間級距為等比推估。
+          </Fold>
+          </>
+          )}
+
+          {/* ========== 第 2 步：確認與結帳 ========== */}
+          {!done && buyStep === 1 && (
+          <>
+          {/* 你選的：一行講完，取代原本散在兩處的兩個價格區塊 */}
+          <div className="mt-3 rounded-2xl border-[3px] border-[#1F2350] bg-[#FFF3A6] p-3">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="min-w-0 flex-1 text-sm font-black leading-snug">
+                {PLAN_BY_KEY[myPick].icon} {PLAN_BY_KEY[myPick].name.replace("去趣 ", "")}
+                <span className="font-bold opacity-60">　{CARRIER_BY_KEY[carrier].name}・{payDays} 天</span>
               </span>
+              <span className="tm-num shrink-0 text-xl font-black">{money(myPrice)}</span>
             </div>
+            <div className="mt-1 text-[11px] font-bold text-[#1F7A55]">85 折已折 {money(mySaved)}</div>
             {payDays > days && (
-              <div className="mt-1 rounded-xl bg-[#FFF3A6] px-2.5 py-1.5 text-[10.5px] font-bold leading-relaxed">
+              <div className="mt-1.5 rounded-xl bg-white px-2.5 py-1.5 text-[10.5px] font-bold leading-relaxed">
                 {days} 天的行程，官網最接近的是 <span className="font-black">{payDays} 天方案</span>
               </div>
             )}
@@ -4944,21 +4965,50 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
             </div>
           </div>
 
-          {/* 結帳：各自付各自的，折扣一起算 */}
-          <div className="mt-3 rounded-2xl border-[3px] border-[#1F2350] bg-[#FFF3A6] p-3">
-            <div className="flex items-center justify-between text-sm font-black">
-              <span>你這次要付</span>
-              <span className="tm-num text-xl">{money(myPrice)}</span>
+          {/* 條款：買之前要確認過 */}
+          <div className="mt-3 rounded-2xl border-[3px] border-[#1F2350] bg-white p-3">
+            <div className="text-[11px] font-black">購買前請先確認</div>
+            <div className="mt-1.5 rounded-xl bg-[#FFE1D3] p-2 text-[10.5px] font-bold leading-relaxed text-[#B8440E]">
+              ⚠️ 恕不接受個人因素退改：售出後不因行程取消等個人因素退換貨，比部分平台嚴格。
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-bold opacity-70">
-              <span className="text-[#1F7A55]">85 折已折 {money(mySaved)}</span>
-              <span className="opacity-40">·</span>
-              <span>{decided.length}／{session.players.length} 人選好，全隊共省 {money(saved)}</span>
-            </div>
+            <ul className="mt-1.5 space-y-1 text-[10.5px] leading-relaxed opacity-75">
+              <li>· 每日流量型當天用完高速額度就降速，但仍可文字通訊，隔天恢復。</li>
+              <li>· QR Code 只能掃一次且無法刪除，建議出發當天再在台灣安裝。憑證兌換期限 180 天。</li>
+              {showAllTerms && (
+                <>
+                  <li>· 抵達當地連網開通當天就算第一天，算到當日（台灣時間）23:59 為第一日。</li>
+                  <li>· 下單後通常 20 分鐘內 Email 收到 QR Code，遇到問題有 24 小時 LINE 中文真人客服。</li>
+                  <li>· 熱點分享：SoftBank 方案 Android 無法開熱點（iPhone 可以）；KDDI 吃到飽有上限（購買天數減 1GB）。</li>
+                  <li>· 不含當地門號與通話簡訊，但原門號的漫遊通話仍可使用。</li>
+                </>
+              )}
+            </ul>
+            {!showAllTerms && (
+              <button type="button" onClick={() => setShowAllTerms(true)} className="mt-1 text-[10.5px] font-bold underline opacity-60">
+                展開其餘 4 條
+              </button>
+            )}
+            <label className="mt-2.5 flex cursor-pointer items-start gap-2 rounded-xl border-2 border-[#1F2350] bg-[#FFF8EE] p-2">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF6B35]"
+              />
+              <span className="text-[11px] font-black leading-snug">
+                我已閱讀並了解上述條款，特別是<span className="text-[#B8440E]">售出後不接受個人因素退換貨</span>
+              </span>
+            </label>
           </div>
 
-          {done ? (
-            /* 買完之後：講清楚買到什麼、對應哪一版行程、接下來怎麼辦 */
+          <Btn variant="ghost" className="mt-3 w-full" onClick={share}>
+            <Copy size={18} /> 把行程和方案貼到 LINE 群組
+          </Btn>
+          </>
+          )}
+
+          {/* ========== 買完之後：只留確認，其他都不必再看 ========== */}
+          {done && (
             <div className="mt-3 rounded-2xl border-[3px] border-[#1F2350] bg-[#E3F5EA] p-3">
               <div className="flex items-center gap-1.5 text-sm font-black text-[#1F7A55]">
                 <Check size={16} strokeWidth={3} /> 你的方案已確認
@@ -4967,21 +5017,19 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
                 {PLAN_BY_KEY[myPick].icon} {PLAN_BY_KEY[myPick].name}　·　{CARRIER_BY_KEY[carrier].name}　·　{payDays} 天　·　{money(myPrice)}
                 {locked && (
                   <div className="mt-1 flex items-center gap-1 text-[10.5px] font-bold opacity-65">
-                    <Lock size={11} /> 依 {new Date(locked.at).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 定版的行程（{locked.spots} 個地點・{locked.gbPerDay}GB／日）計算
+                    <Lock size={11} /> 依 {new Date(locked.at).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 定版的行程計算
                   </div>
                 )}
               </div>
-              <div className="mt-2 text-[11px] font-black">接下來</div>
-              <ul className="mt-0.5 space-y-0.5 text-[10.5px] leading-relaxed opacity-80">
+              <ul className="mt-2 space-y-0.5 text-[10.5px] leading-relaxed opacity-80">
                 <li>· QR Code 會在 20 分鐘內寄到你的 Email，兌換期限 180 天。</li>
-                <li>· 建議<span className="font-black">出發當天再在台灣掃描啟用</span>，掃了就開始計算天數。</li>
-                <li>· 還想改行程？回行程頁「解除定版」，改完重新定版，我會告訴你這個方案還夠不夠用。</li>
+                <li>· 建議<span className="font-black">出發當天再在台灣掃描啟用</span>，掃了就開始算天數。</li>
               </ul>
               {/* 買完的收尾：把行程存成圖片傳出去，情緒收束 + 順便帶人進房間 */}
               <div className="mt-2.5 rounded-2xl border-[3px] border-[#1F2350] bg-white p-3">
                 <div className="tm-display text-[17px] leading-tight">行程存好了，網路也備好了</div>
                 <p className="mt-0.5 text-[11.5px] leading-relaxed opacity-70">
-                  把這份行程傳到群組吧——圖片上有房間代碼，還沒加入的朋友輸入就能一起排。
+                  把這份行程傳到群組吧——圖片上有房間代碼，朋友輸入就能一起排。
                 </p>
                 <Btn className="mt-2 w-full" onClick={() => { onClose(); onExport?.(); }}>
                   <ImageDown size={18} /> 存成圖片傳到 LINE 群
@@ -4991,57 +5039,34 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
                 <ChevronLeft size={16} /> 先回到行程
               </Btn>
             </div>
-          ) : (
-            <>
-              {/* 買之前先看條款，而且要確認過才能買 */}
-              <div className="mt-3 rounded-2xl border-[3px] border-[#1F2350] bg-white p-3">
-                <div className="text-[11px] font-black">購買前請先確認</div>
-                <div className="mt-1.5 rounded-xl bg-[#FFE1D3] p-2 text-[10.5px] font-bold leading-relaxed text-[#B8440E]">
-                  ⚠️ 恕不接受個人因素退改：售出後不因行程取消等個人因素退換貨，比部分平台嚴格。
-                </div>
-                <ul className="mt-1.5 space-y-1 text-[10.5px] leading-relaxed opacity-75">
-                  <li>· 每日流量型當天用完高速額度就降速，但仍可文字通訊，隔天恢復。</li>
-                  <li>· QR Code 只能掃一次且無法刪除，建議出發當天再在台灣安裝。憑證兌換期限 180 天。</li>
-                  <li>· 抵達當地連網開通當天就算第一天，算到當日（台灣時間）23:59 為第一日。</li>
-                  {showAllTerms && (
-                    <>
-                      <li>· 下單後通常 20 分鐘內 Email 收到 QR Code，遇到問題有 24 小時 LINE 中文真人客服。</li>
-                      <li>· 熱點分享：SoftBank 方案 Android 無法開熱點（iPhone 可以）；KDDI 吃到飽有上限（購買天數減 1GB）。</li>
-                      <li>· 不含當地門號與通話簡訊，但原門號的漫遊通話仍可使用。</li>
-                    </>
-                  )}
-                </ul>
-                {!showAllTerms && (
-                  <button type="button" onClick={() => setShowAllTerms(true)} className="mt-1 text-[10.5px] font-bold underline opacity-60">
-                    展開其餘 3 條
-                  </button>
-                )}
-                <label className="mt-2.5 flex cursor-pointer items-start gap-2 rounded-xl border-2 border-[#1F2350] bg-[#FFF8EE] p-2">
-                  <input
-                    type="checkbox"
-                    checked={agreed}
-                    onChange={(e) => setAgreed(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF6B35]"
-                  />
-                  <span className="text-[11px] font-black leading-snug">
-                    我已閱讀並了解上述條款，特別是<span className="text-[#B8440E]">售出後不接受個人因素退換貨</span>
-                  </span>
-                </label>
-              </div>
-
-              <div className="mt-3 grid gap-2">
-                <Btn className="w-full" disabled={!agreed} onClick={buy}>
-                  <Rocket size={18} /> {agreed ? `確認我的方案（${money(myPrice)}）` : "請先確認上方條款"}
-                </Btn>
-                <Btn variant="ghost" className="w-full" onClick={share}><Copy size={18} /> 把行程和方案貼到 LINE 群組</Btn>
-              </div>
-            </>
           )}
-          <Fold className="mt-2" tone="#FFFFFF" title="方案定價說明">
-            規格與商品說明照去趣官網。每日 500MB（NT$22／原價 NT$26）與吃到飽（NT$81 起／原價 NT$95）為官方標價，中間級距為等比推估。
-          </Fold>
         </Card>
       </motion.div>
+
+      {/* 固定底部：永遠看得到現在該做什麼，不用捲到底找按鈕 */}
+      {!done && (
+        <div
+          className="fixed inset-x-0 bottom-0 z-[55] border-t-[3px] border-[#1F2350] bg-[#FFE8D1]/95 px-4 py-3 backdrop-blur"
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
+        >
+          <div className="mx-auto flex max-w-md items-center gap-2">
+            {buyStep > 0 && (
+              <Btn variant="ghost" size="sm" className="shrink-0" onClick={() => setBuyStep(0)}>
+                <ChevronLeft size={16} /> 改方案
+              </Btn>
+            )}
+            {buyStep === 0 ? (
+              <Btn className="flex-1" onClick={() => setBuyStep(1)}>
+                下一步：確認 {money(myPrice)}
+              </Btn>
+            ) : (
+              <Btn className="flex-1" disabled={!agreed} onClick={buy}>
+                <Rocket size={18} /> {agreed ? `確認我的方案（${money(myPrice)}）` : "請先勾選上方條款"}
+              </Btn>
+            )}
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
