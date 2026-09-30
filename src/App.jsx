@@ -7,7 +7,7 @@
  *      → GAME（Gather Town 風大地圖 + 4 回合答題 + 大提示）
  *      → SUMMARY（人格結算 + 雙欄常駐 eSIM 導購）
  *
- * 多人連線、AI GM、AI 排程皆為前端 Mock，集中在「3. Mock 引擎」區塊。
+ * 多人連線、AI TripMate、AI 排程皆為前端 Mock，集中在「3. Mock 引擎」區塊。
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
@@ -222,98 +222,183 @@ const AudioEngine = (() => {
     },
   };
 
-  /* ---------- 背景音樂：4 小節循環，F – C – Dm – B♭ ---------- */
+  /* ---------- 背景音樂：兩種情緒，各自 4 小節循環 ----------
+   * calm：快測／結算／排行程用。F–C–Dm–B♭，84 BPM，只有 pad + 低音 + 疏的旋律。
+   * game：4 回合答題用。Am–F–C–G，116 BPM，加上大鼓、hi-hat 和更密的旋律。
+   * ------------------------------------------------------------------ */
   const hz = (m) => 440 * (2 ** ((m - 69) / 12));
-  const CHORDS = [
-    { pad: [65, 69, 72], bass: 41 }, // F
-    { pad: [64, 67, 72], bass: 36 }, // C
-    { pad: [65, 69, 74], bass: 38 }, // Dm
-    { pad: [65, 70, 74], bass: 34 }, // B♭
-  ];
-  // 每小節 8 個八分音符，只在 0/2/4/6 放旋律，留白才不會聽膩
-  const LEAD = [
-    [69, null, 72, null, 74, null, 72, null],
-    [67, null, 72, null, 76, null, 72, null],
-    [69, null, 74, null, 77, null, 74, null],
-    [70, null, 74, null, 72, null, 69, null],
-  ];
-  const STEP = 0.357; // ≈ 84 BPM 的八分音符
+
+  const MOODS = {
+    calm: {
+      step: 0.357, // ≈ 84 BPM 的八分音符
+      chords: [
+        { pad: [65, 69, 72], bass: 41 }, // F
+        { pad: [64, 67, 72], bass: 36 }, // C
+        { pad: [65, 69, 74], bass: 38 }, // Dm
+        { pad: [65, 70, 74], bass: 34 }, // B♭
+      ],
+      // 只在 0/2/4/6 放旋律，留白才不會聽膩
+      lead: [
+        [69, null, 72, null, 74, null, 72, null],
+        [67, null, 72, null, 76, null, 72, null],
+        [69, null, 74, null, 77, null, 74, null],
+        [70, null, 74, null, 72, null, 69, null],
+      ],
+      bassBeats: [0, 4],
+      drums: false,
+      padVol: 0.055, bassVol: 0.11, leadVol: 0.075,
+      leadType: "triangle", bassType: "triangle",
+      padCut: 1500,
+    },
+    game: {
+      step: 0.2586, // ≈ 116 BPM，明顯比 calm 快
+      chords: [
+        { pad: [64, 69, 72], bass: 33 }, // Am
+        { pad: [65, 69, 72], bass: 29 }, // F
+        { pad: [64, 67, 72], bass: 36 }, // C
+        { pad: [62, 67, 71], bass: 31 }, // G
+      ],
+      // 音符變密、加切分，推著人往前
+      lead: [
+        [69, null, 72, 74, null, 76, null, 74],
+        [72, null, 69, 72, null, 77, null, 76],
+        [76, null, 79, 76, null, 72, null, 74],
+        [74, null, 71, 74, null, 79, null, 76],
+      ],
+      bassBeats: [0, 3, 4, 6], // 切分低音
+      drums: true,
+      padVol: 0.03, bassVol: 0.13, leadVol: 0.085,
+      leadType: "square", bassType: "sawtooth",
+      padCut: 1100,
+    },
+  };
+  let mood = "calm";
 
   function playStep(i, t) {
     const c = ctx;
     if (!c || !musicBus) return;
+    const M = MOODS[mood];
     const bar = Math.floor(i / 8) % 4;
     const beat = i % 8;
     const pass = Math.floor(i / 32);
-    const chord = CHORDS[bar];
+    const chord = M.chords[bar];
+    const S = M.step;
 
-    const soft = (f, dur, vol) => {
-      const osc = c.createOscillator();
+    const env = (node, vol, attack, dur) => {
       const g = c.createGain();
-      const lp = c.createBiquadFilter();
-      lp.type = "lowpass";
-      lp.frequency.value = 1500;
-      osc.type = "sine";
-      osc.frequency.value = f;
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(vol, t + 0.35);
+      g.gain.exponentialRampToValueAtTime(vol, t + attack);
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      osc.connect(lp);
-      lp.connect(g);
+      node.connect(g);
       g.connect(musicBus);
-      osc.start(t);
-      osc.stop(t + dur + 0.05);
+      return g;
     };
 
-    if (beat === 0) chord.pad.forEach((m) => soft(hz(m), STEP * 7.4, 0.055));
-    if (beat === 0 || beat === 4) {
-      const osc = c.createOscillator();
-      const g = c.createGain();
-      osc.type = "triangle";
-      osc.frequency.value = hz(chord.bass);
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.11, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + STEP * 1.6);
-      osc.connect(g);
-      g.connect(musicBus);
-      osc.start(t);
-      osc.stop(t + STEP * 1.7);
+    // 和聲墊
+    if (beat === 0) {
+      chord.pad.forEach((m) => {
+        const osc = c.createOscillator();
+        const lp = c.createBiquadFilter();
+        lp.type = "lowpass";
+        lp.frequency.value = M.padCut;
+        osc.type = "sine";
+        osc.frequency.value = hz(m);
+        osc.connect(lp);
+        env(lp, M.padVol, 0.35, S * 7.4);
+        osc.start(t);
+        osc.stop(t + S * 7.5);
+      });
     }
-    // 每隔一輪把旋律拿掉一半，聽起來像有呼吸
-    const note = LEAD[bar][beat];
+
+    // 低音
+    if (M.bassBeats.includes(beat)) {
+      const osc = c.createOscillator();
+      const lp = c.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 900;
+      osc.type = M.bassType;
+      osc.frequency.value = hz(chord.bass);
+      osc.connect(lp);
+      env(lp, M.bassVol, 0.02, S * 1.5);
+      osc.start(t);
+      osc.stop(t + S * 1.6);
+    }
+
+    // 旋律：每隔一輪拿掉一個音，聽起來像有呼吸
+    const note = M.lead[bar][beat];
     if (note && !(pass % 2 === 1 && beat === 6)) {
       const osc = c.createOscillator();
-      const g = c.createGain();
-      osc.type = "triangle";
+      osc.type = M.leadType;
       osc.frequency.value = hz(note + (pass % 4 === 3 ? 12 : 0));
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.075, t + 0.03);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + STEP * 1.3);
-      osc.connect(g);
-      g.connect(musicBus);
+      env(osc, M.leadVol, 0.03, S * 1.3);
       osc.start(t);
-      osc.stop(t + STEP * 1.4);
+      osc.stop(t + S * 1.4);
+    }
+
+    // 鼓組：只有 game 有，這是「刺激」最主要的來源
+    if (M.drums) {
+      if (beat === 0 || beat === 4 || (beat === 6 && pass % 2 === 1)) {
+        const osc = c.createOscillator();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(140, t);
+        osc.frequency.exponentialRampToValueAtTime(45, t + 0.11);
+        env(osc, 0.2, 0.006, 0.16);
+        osc.start(t);
+        osc.stop(t + 0.2);
+      }
+      if (beat === 4) { // 小鼓
+        const len = Math.floor(c.sampleRate * 0.13);
+        const buf = c.createBuffer(1, len, c.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let k = 0; k < len; k += 1) d[k] = (Math.random() * 2 - 1) * (1 - k / len);
+        const src = c.createBufferSource();
+        src.buffer = buf;
+        const bp = c.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.frequency.value = 1900;
+        bp.Q.value = 0.7;
+        src.connect(bp);
+        env(bp, 0.075, 0.004, 0.13);
+        src.start(t);
+        src.stop(t + 0.15);
+      }
+      if (beat % 2 === 1) { // hi-hat 踩在反拍
+        const len = Math.floor(c.sampleRate * 0.035);
+        const buf = c.createBuffer(1, len, c.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let k = 0; k < len; k += 1) d[k] = (Math.random() * 2 - 1) * (1 - k / len);
+        const src = c.createBufferSource();
+        src.buffer = buf;
+        const hp = c.createBiquadFilter();
+        hp.type = "highpass";
+        hp.frequency.value = 6500;
+        src.connect(hp);
+        env(hp, 0.045, 0.003, 0.035);
+        src.start(t);
+        src.stop(t + 0.05);
+      }
     }
   }
 
   function tick() {
     const c = ensure();
     if (!c) return;
+    const S = MOODS[mood].step;
     while (nextAt < c.currentTime + 0.4) {
       if (nextAt < c.currentTime) nextAt = c.currentTime + 0.05;
       playStep(step, nextAt);
-      nextAt += STEP;
+      nextAt += S;
       step += 1;
     }
   }
 
-  function startMusic() {
+  function startMusic(fadeIn = 2) {
     const c = ensure();
     if (!c || timer) return;
     nextAt = c.currentTime + 0.1;
     musicBus.gain.cancelScheduledValues(c.currentTime);
     musicBus.gain.setValueAtTime(0.0001, c.currentTime);
-    musicBus.gain.exponentialRampToValueAtTime(0.5, c.currentTime + 2);
+    musicBus.gain.exponentialRampToValueAtTime(0.5, c.currentTime + fadeIn);
     tick();
     timer = setInterval(tick, 120);
   }
@@ -328,6 +413,27 @@ const AudioEngine = (() => {
       clearInterval(timer);
       timer = null;
     }
+  }
+
+  // 換情緒：淡出舊的循環，從頭接上新的，避免兩段音樂疊在一起
+  let swap = null;
+  function setMood(name) {
+    if (!MOODS[name] || name === mood) return;
+    mood = name;
+    if (!bgmOn) return;
+    const c = ensure();
+    if (!c || !timer) return;
+    musicBus.gain.cancelScheduledValues(c.currentTime);
+    musicBus.gain.setValueAtTime(Math.max(0.0001, musicBus.gain.value), c.currentTime);
+    musicBus.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.35);
+    clearInterval(timer);
+    timer = null;
+    clearTimeout(swap);
+    swap = setTimeout(() => {
+      if (!bgmOn || mood !== name) return;
+      step = 0;
+      startMusic(0.7);
+    }, 420);
   }
 
   return {
@@ -349,6 +455,8 @@ const AudioEngine = (() => {
       if (on) startMusic();
       else stopMusic();
     },
+    // 'calm'（快測／結算／排行程）或 'game'（4 回合答題）
+    setMood,
     // 進到遊戲畫面時，如果使用者已經開了音樂就接著播
     resume() {
       if (bgmOn) startMusic();
@@ -730,7 +838,7 @@ function buildHint(roundIdx, results, ctx) {
 
   if (active.length >= 2 && letters.size === 1 && !letters.has("D")) {
     headline = `😳 驚人共識：全隊都選「${shortOf(roundIdx, active[0])}」`;
-    sub = "連 GM 都愣住了，這種默契可以直接組戰隊出道。";
+    sub = "連 TripMate 都愣住了，這種默契可以直接組戰隊出道。";
   } else {
     let worst = null;
     for (let i = 0; i < active.length; i += 1) {
@@ -1536,7 +1644,7 @@ function SetupScreen({ onStart, toast }) {
                   <div className="mt-3 flex flex-wrap justify-center gap-1.5">
                     <Chip>📍 {destName}</Chip>
                     <Chip><CalendarDays size={12} /> {fmtDate(date)}</Chip>
-                    <Chip>🌙 {tripLabel(days)}</Chip>
+                    <Chip>{tripLabel(days)}</Chip>
                   </div>
                   <div className="mt-3 flex justify-center gap-2">
                     <Btn
@@ -2066,7 +2174,7 @@ function HintModal({ roundIdx, results, hint, onClose }) {
           <div className="flex items-center gap-2">
             <div className="grid h-9 w-9 place-items-center rounded-full border-[3px] border-[#1F2350] bg-[#FFC93C]"><Radio size={16} /></div>
             <div>
-              <div className="text-sm font-black">去趣 GM・大提示</div>
+              <div className="text-sm font-black">去趣 TripMate・大提示</div>
               <div className="text-[11px] opacity-60">第 {roundIdx + 1} 站　{ROUNDS[roundIdx].title}</div>
             </div>
           </div>
@@ -2214,7 +2322,7 @@ function RoundCard({ roundIdx, players, profile, onSubmit }) {
             <div className="flex items-start gap-3">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-[3px] border-[#1F2350] text-lg font-black text-white" style={{ background: CHOICE_COLOR.D }}>D</span>
               <div className="min-w-0 flex-1">
-                <span className="inline-block rounded-md bg-[#7C5CE0] px-1.5 py-0.5 text-[10.5px] font-bold text-white">自訂輸入：GM 會讀你的關鍵字</span>
+                <span className="inline-block rounded-md bg-[#7C5CE0] px-1.5 py-0.5 text-[10.5px] font-bold text-white">自訂輸入：TripMate 會讀你的關鍵字</span>
                 <div className="mt-1.5 flex items-center gap-2">
                   <input
                     ref={inputRef}
@@ -2361,7 +2469,7 @@ function PersonaCard({ member, seedPersona }) {
           ))}
         </div>
         <div className="rounded-2xl bg-[#FFF3A6] p-3 text-sm leading-relaxed">
-          <span className="font-black">GM 短評：</span>{fill(P.roast, { name: "你" })}
+          <span className="font-black">TripMate 短評：</span>{fill(P.roast, { name: "你" })}
         </div>
       </div>
     </Card>
@@ -2421,7 +2529,7 @@ function SummaryScreen({ session, history, analysis, onRestart, onPlan, toast })
       <div className="mb-3">
         <h1 className="tm-display text-[28px] leading-tight">{session.dest.replace("日本", "")}冒險結算</h1>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
-          <Chip>🌙 {tripLabel(session.days)}</Chip>
+          <Chip>{tripLabel(session.days)}</Chip>
           <Chip>👥 {n} 人</Chip>
           <Chip>{BUDGETS.find((b) => b.key === session.budget)?.icon} {BUDGETS.find((b) => b.key === session.budget)?.name}</Chip>
         </div>
@@ -2599,7 +2707,7 @@ function SummaryScreen({ session, history, analysis, onRestart, onPlan, toast })
         </Card>
 
               <StickyNote groups={A.plan.groups.length} />
-              <Fold tone="#FFF3A6" icon={<span className="text-sm">🗓️</span>} title="下一步的排行程是怎麼玩的？">
+              <Fold tone="#FFF3A6" title="下一步的排行程是怎麼玩的？">
                 AI 會依你的人格與偏好推薦大阪景點，右滑存進行程、左滑跳過。存檔後全隊看到的是同一份，誰改了什麼都會即時同步。
               </Fold>
               <CouponReminder session={session} toast={toast} />
@@ -3256,7 +3364,7 @@ function SwipeCard({ poi, reason, chips = [], persona, x, top, depth, onDragEnd 
           </div>
         )}
         <div className="mt-auto pt-2">
-          <div className="rounded-2xl bg-[#ECE5FF] p-2.5 text-[11px] font-bold leading-relaxed">🤖 AI 推薦理由：{reason}</div>
+          <div className="rounded-2xl bg-[#ECE5FF] p-2.5 text-[11px] font-bold leading-relaxed">AI 推薦理由：{reason}</div>
         </div>
       </div>
     </Card>
@@ -3464,7 +3572,7 @@ function SwipeDeck({ member, budget, day, slot, excludeIds, onDone, onClose }) {
             <div className="tm-display text-[22px]">{exhausted ? "沒有新景點可以推了" : `第 ${round + 1} 輪結束`}</div>
             {!exhausted && (
               <div className="mt-2 rounded-2xl border-2 border-[#1F2350] bg-[#ECE5FF] p-3 text-sm leading-relaxed">
-                <div className="font-black">🤖 AI 已依你的滑動調整推薦</div>
+                <div className="font-black">AI 已依你的滑動調整推薦</div>
                 <div className="mt-1">
                   {note?.up && <>更多「{note.up}」類型</>}
                   {note?.up && note?.down && "，"}
@@ -3655,9 +3763,6 @@ function PlanItem({ item, author, index, count, travelIn, onRemove, onMove, now,
               <Stars value={poi.rating} size={10} />
               <span className="tm-num font-black">{poi.rating}</span>
             </span>
-            {personaRating(poi, persona).matched > 0 && (
-              <span className="tm-num rounded-full bg-[#FFF3A6] px-1.5 font-black text-[#7A5A12]">同類 {personaRating(poi, persona).value}★</span>
-            )}
           </div>
           {topReview && <div className="mt-0.5 truncate text-[10.5px] italic opacity-55">「{topReview.text}」— {topReview.name}</div>}
           <div className="mt-1 flex items-center gap-1">
@@ -3669,7 +3774,7 @@ function PlanItem({ item, author, index, count, travelIn, onRemove, onMove, now,
                 <span className="text-[10px] font-bold opacity-60">{author.isUser ? "你加入的" : `${author.name} 加入的`}</span>
               </>
             )}
-            {fresh && <span className="ml-auto rounded-full bg-[#FF6B35] px-1.5 py-0.5 text-[9px] font-black text-white">NEW</span>}
+            {fresh && !author.ai && <span className="ml-auto rounded-full bg-[#FF6B35] px-1.5 py-0.5 text-[9px] font-black text-white">NEW</span>}
           </div>
         </div>
         {!readOnly && <div className="flex shrink-0 flex-col gap-1">
@@ -3722,7 +3827,7 @@ function SlotCard({ day, slot, items, authorOf, now, persona, readOnly, onOpenDe
         {warn && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
             <div className="mb-2 rounded-2xl border-2 border-dashed border-[#E8453C] bg-[#FFE1D3] p-2.5">
-              <div className="text-xs font-black text-[#B8440E]">🤖 AI 提醒：這樣排可能不太合理</div>
+              <div className="text-xs font-black text-[#B8440E]">AI 提醒：這樣排可能不太合理</div>
               <p className="mt-0.5 text-xs leading-relaxed">{warn.text}</p>
               {warn.poi && (
                 <Btn size="sm" className="mt-2" onClick={() => onFix(warn)}><Sparkles size={14} /> 讓 AI 幫我調</Btn>
@@ -4282,10 +4387,19 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
               <span className="pb-1 ml-auto text-[11px] font-bold opacity-55">AI 依行程估算</span>
             </div>
             <ul className="mt-2 space-y-1">
-              {needs.drivers.map((d) => (
+              {needs.drivers.slice(0, 1).map((d) => (
                 <li key={d.text} className="text-[11.5px] leading-relaxed">{d.icon} {d.text}</li>
               ))}
             </ul>
+            {needs.drivers.length > 1 && (
+              <Fold className="mt-2" tone="#FFFFFF" title={`還有 ${needs.drivers.length - 1} 個因素推高用量`}>
+                <ul className="m-0 list-none space-y-1 p-0">
+                  {needs.drivers.slice(1).map((d) => (
+                    <li key={d.text} className="leading-relaxed">{d.icon} {d.text}</li>
+                  ))}
+                </ul>
+              </Fold>
+            )}
           </div>
 
           {/* AI 依行程推薦的方案 */}
@@ -4304,7 +4418,7 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
           </div>
 
           {/* 一起買的真正好處不是折扣（折扣本來就有），而是不用共用熱點 */}
-          <Fold className="mt-2" tone="#FFF3A6" icon={<span className="text-sm">💡</span>} title="為什麼建議一人一張，而不是開熱點分享？">
+          <Fold className="mt-2" tone="#FFF3A6" title="為什麼建議一人一張，而不是開熱點分享？">
             熱點會受手機系統限制（SoftBank 方案的 Android 無法開熱點），而且一分流就有人沒網路。
             每日流量型每天最低 {money(salePerDay(ESIM_PLANS[0]))} 起，各自裝一張最單純。
           </Fold>
@@ -4375,7 +4489,7 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
               </div>
               <div className="mt-1.5 rounded-lg bg-[#FFF8EE] p-2 text-[10px] leading-relaxed">
                 {carrier === carrierPick.key
-                  ? <><span className="font-black">🤖 為什麼推這家：</span>{carrierPick.why}</>
+                  ? <><span className="font-black">為什麼推這家：</span>{carrierPick.why}</>
                   : <><span className="font-black">{CARRIER_BY_KEY[carrier].name}：</span>{CARRIER_BY_KEY[carrier].fit}</>}
                 <div className="mt-1 text-[#B8440E]">⚠️ {CARRIER_BY_KEY[carrier].caveat}</div>
               </div>
@@ -4511,9 +4625,9 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
               </div>
             </>
           )}
-          <p className="mt-2 text-[11px] leading-relaxed opacity-50">
-            Prototype 示意：規格與商品說明照去趣官網。每日 500MB（NT$22／原價 NT$26）與吃到飽（NT$81 起／原價 NT$95）為官方標價，中間級距為等比推估。
-          </p>
+          <Fold className="mt-2" tone="#FFFFFF" title="方案定價說明">
+            規格與商品說明照去趣官網。每日 500MB（NT$22／原價 NT$26）與吃到飽（NT$81 起／原價 NT$95）為官方標價，中間級距為等比推估。
+          </Fold>
         </Card>
       </motion.div>
     </motion.div>
@@ -4654,14 +4768,10 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
           <Btn size="sm" variant="ghost" sound="back" className="shrink-0" onClick={onBack}><ChevronLeft size={16} /> 回結算頁</Btn>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <Chip><span className="mr-0.5 inline-block h-2 w-2 rounded-full bg-[#2F9E62]" />同步中・{session.players.length} 人</Chip>
-          <Chip>📍 {session.dest}・{tripLabel(days)}・{board.length} 個地點</Chip>
-          {member && (
-            <Chip>
-              {PERSONAS[member.persona].emoji} {PERSONAS[member.persona].name}
-              ・{(BUDGETS.find((b) => b.key === session.budget) || BUDGETS[1]).name}
-            </Chip>
-          )}
+          <Chip>
+            <span className="mr-0.5 inline-block h-2 w-2 rounded-full bg-[#2F9E62]" />
+            同步中・{session.players.length} 人・{board.length} 個地點
+          </Chip>
         </div>
       </div>
 
@@ -4670,7 +4780,6 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
           {seeded > 0 && (
             <Fold
               className="border-dashed"
-              icon={<span className="text-sm">🤖</span>}
               title={<>{days} 天的行程都排好了，其中 {seeded} 個是 AI 依你們 4 站的選擇預排的</>}
             >
               排序套用了你們的遊戲結果：人格偏好、預算級別，還有和你同類型旅人的評分。
@@ -4860,7 +4969,7 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
             </div>
           </Card>
 
-          <Fold tone="#FFFFFF" icon={<span className="text-sm">💡</span>} title="怎麼玩？（不看也能玩）">
+          <Fold tone="#FFFFFF" title="怎麼玩？（不看也能玩）">
             <p>行程已經排滿，直接出發也可以。想微調：卡片用握把拖曳或 ▲▼ 換順序、右側垃圾桶刪掉不想去的。</p>
             <p className="mt-1.5">想換地點就點「AI 推薦」，右滑加入、左滑跳過，每張卡都附上網友評論與「和你同類型旅人」的平均分數。存檔前 AI 會先算交通時間，排不下的自動換時段。</p>
             <p className="mt-1.5"><span className="font-black">調整到滿意就按「定版」</span>，才能導出圖片、算出需要多少網路。之後想改隨時可以解除，改完記得重新定版，AI 會告訴你已買的方案還夠不夠。</p>
@@ -4979,6 +5088,11 @@ export default function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [phase, roundIdx]);
+
+  // 答題的 4 回合換成比較急的曲子，其餘畫面回到平穩的版本
+  useEffect(() => {
+    AudioEngine.setMood(phase === "GAME" ? "game" : "calm");
+  }, [phase]);
 
   const pushFeed = useCallback((by, text) => {
     setFeed((f) => [{ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, by, text, at: Date.now() }, ...f].slice(0, 30));
