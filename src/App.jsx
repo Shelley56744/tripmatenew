@@ -603,9 +603,9 @@ const QUIZ_MAP = {
 };
 
 const BUDGETS = [
-  { key: "thrifty", icon: "🪙", name: "特級小資", range: "1.5 萬內", desc: "住青旅、吃巷弄、能省則省", mealCap: 800, color: "#2F9E62" },
-  { key: "standard", icon: "💳", name: "標準玩家", range: "1.5～3 萬", desc: "該吃吃該買買，但心裡有數", mealCap: 1500, color: "#3E8EDE" },
-  { key: "luxury", icon: "💎", name: "奢華富豪", range: "3 萬以上", desc: "來都來了，體驗值全開", mealCap: 99999, color: "#B8440E" },
+  { key: "thrifty", icon: "🪙", name: "特級小資", range: "2 萬內", desc: "住青旅、吃巷弄、購物克制", mealCap: 800, color: "#2F9E62" },
+  { key: "standard", icon: "💳", name: "標準玩家", range: "2～4 萬", desc: "商務旅館，該吃吃該買買", mealCap: 1500, color: "#3E8EDE" },
+  { key: "luxury", icon: "💎", name: "奢華富豪", range: "4 萬以上", desc: "好飯店、名店預約，放心掃貨", mealCap: 99999, color: "#B8440E" },
 ];
 
 const NETWORKS = [
@@ -1647,7 +1647,7 @@ function SetupScreen({ onStart, toast }) {
             <Card className="p-4">
               <Chip><Wallet size={13} /> Step 2／3　預算錨定</Chip>
               <h2 className="tm-display mt-2 text-2xl">這趟大阪，你的預算級別？</h2>
-              <p className="text-xs opacity-60">整趟行程（不含機票）。遊戲中的晚餐題會依這個級別給你即時反饋。</p>
+              <p className="text-xs opacity-60">5 天 4 夜、不含機票，含吃住交通與購物。</p>
               <div className="mt-3 space-y-2">
                 {BUDGETS.map((b) => (
                   <motion.button
@@ -4748,7 +4748,7 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
                   <Unlock size={10} /> 行程還在調整中，下面的數字會跟著變
                 </div>
               )}
-              <p className="text-xs leading-relaxed opacity-70">照你們<span className="font-black">實際排出來的 {needs.spots} 個行程</span>估算，每個人各自選方案，全館 85 折都適用。</p>
+              <p className="text-xs leading-relaxed opacity-70">照你們排出來的 <span className="font-black">{needs.spots} 個行程</span>估算，全館 85 折</p>
             </div>
             <button type="button" onClick={onClose} aria-label="關閉" className="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-[#1F2350]"><X size={15} strokeWidth={3} /></button>
           </div>
@@ -4792,13 +4792,12 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
                   </span>
                 ))}
               </div>
-              <p className="mt-2 text-[12px] font-bold leading-relaxed">
-                分開的時候，每個人都要能自己導航、自己叫車、自己傳位置——
-                <span className="text-[#5B3FC4]">這是一人一張最實際的理由。</span>
+              <p className="mt-2 text-[13px] font-black leading-relaxed">
+                一分開，<span className="text-[#5B3FC4]">熱點就分享不到了</span>。
               </p>
-              <p className="mt-1.5 text-[11px] leading-relaxed opacity-65">
-                開熱點分享不行嗎？會受手機系統限制（SoftBank 方案的 Android 無法開熱點），而且一分流就有人沒網路。
-              </p>
+              <Fold className="mt-1.5" tone="#FFFFFF" title="開熱點真的不行嗎？">
+                會受手機系統限制（SoftBank 方案的 Android 無法開熱點），而且一分流就有人沒網路。
+              </Fold>
             </div>
           )}
 
@@ -4906,8 +4905,7 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
             </div>
             {payDays > days && (
               <div className="mt-1 rounded-xl bg-[#FFF3A6] px-2.5 py-1.5 text-[10.5px] font-bold leading-relaxed">
-                ℹ️ 你們的行程是 {days} 天，但官網只賣 {ESIM_DAY_OPTIONS.join("／")} 天，
-                所以算的是最接近的 {payDays} 天方案。
+                {days} 天的行程，官網最接近的是 <span className="font-black">{payDays} 天方案</span>
               </div>
             )}
           </div>
@@ -4952,9 +4950,10 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
               <span>你這次要付</span>
               <span className="tm-num text-xl">{money(myPrice)}</span>
             </div>
-            <div className="mt-1 text-[11px] font-bold leading-relaxed opacity-70">
-              全館 85 折已自動帶入（優惠碼 {session.coupon || "QU-XXXX"}），你省了 {money(mySaved)}。
-              大家各自結帳，{decided.length} 人已選好（目前全隊合計 {money(total)}、共省 {money(saved)}）。
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-bold opacity-70">
+              <span className="text-[#1F7A55]">85 折已折 {money(mySaved)}</span>
+              <span className="opacity-40">·</span>
+              <span>{decided.length}／{session.players.length} 人選好，全隊共省 {money(saved)}</span>
             </div>
           </div>
 
