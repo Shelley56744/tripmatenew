@@ -4792,6 +4792,9 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
                 分開的時候，每個人都要能自己導航、自己叫車、自己傳位置——
                 <span className="text-[#5B3FC4]">這是一人一張最實際的理由。</span>
               </p>
+              <p className="mt-1.5 text-[11px] leading-relaxed opacity-65">
+                開熱點分享不行嗎？會受手機系統限制（SoftBank 方案的 Android 無法開熱點），而且一分流就有人沒網路。
+              </p>
             </div>
           )}
 
@@ -4818,28 +4821,6 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
             )}
           </div>
 
-          {/* AI 依行程推薦的方案 */}
-          <div className="mt-3 rounded-2xl border-[3px] border-[#1F2350] bg-[#E3F5EA] p-3">
-            <div className="flex items-center gap-1.5">
-              <span className="rounded-md bg-[#2F9E62] px-1.5 py-0.5 text-[10px] font-black text-white">AI 為這份行程推薦</span>
-              <span className="rounded-md bg-[#FF6B35] px-1.5 py-0.5 text-[10px] font-black text-white">全館 85 折</span>
-            </div>
-            <div className="tm-display mt-1 text-xl leading-tight">{base.icon} {base.name}</div>
-            <div className="text-xs opacity-70">{base.cap}　·　{base.good}</div>
-            <div className="mt-1.5 flex items-end gap-2">
-              <span className="tm-num text-sm font-bold line-through opacity-40">{money(base.listPerDay)}</span>
-              <span className="tm-num text-2xl font-black leading-none text-[#FF6B35]">{money(groupUnit)}</span>
-              <span className="pb-0.5 text-xs font-bold">／人／日</span>
-            </div>
-          </div>
-
-          {/* 一起買的真正好處不是折扣（折扣本來就有），而是不用共用熱點 */}
-          {/* 「我開熱點就好」是最常見的反對意見，直接擺出來回答，不收摺 */}
-          <div className="mt-2 rounded-2xl border-2 border-dashed border-[#1F2350] bg-[#FFF3A6] p-2.5 text-[11.5px] leading-relaxed">
-            <span className="font-black">開熱點分享不行嗎？</span>
-            會受手機系統限制（SoftBank 方案的 Android 無法開熱點），而且<span className="font-black">一分流就有人沒網路</span>。
-            每日流量型每天最低 {money(salePerDay(ESIM_PLANS[0]))} 起，各自裝一張最單純。
-          </div>
 
           {/* 我的方案：這支手機只決定自己的 */}
           <div className="mt-3">
