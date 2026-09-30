@@ -569,7 +569,7 @@ const KEYWORD_RULES = {
 };
 
 /* ==================================================================
- * 2. SETUP 資料：3 題人格快測 · 預算錨定 · 行前網路方案
+ * 2. SETUP 資料：3 題人格快測 · 預算錨定（網路方案改在第 1 站由趣趣提問）
  * ================================================================== */
 const QUIZ = [
   {
@@ -863,8 +863,45 @@ function buildHint(roundIdx, results, ctx) {
   }
 
   const rows = [];
+
+  // 誰跟你選一樣 —— 這是多人遊戲最直接的回饋，比分數本身更有感
+  const mates = whoMatchedMe(results);
+  if (mates.length) {
+    rows.push({
+      tone: "ok",
+      text: `🤝 ${mates.map((m) => m.name).join("、")} 跟你選了一樣的`,
+      sub: mates.length >= results.length - 1 ? "全隊跟你同步，默契直接拉滿。" : "默契 +，你們在這件事上想的一樣。",
+    });
+  } else if (results.length > 1) {
+    rows.push({ tone: "warn", text: "🙃 這一站只有你這樣選", sub: "沒關係，分頭行動本來就是旅行的一部分——但網路要各自有。" });
+  }
+
+  // 玩家自己打字的時候，一定要讓他看到 TripMate 真的讀懂了。
+  // hits 本來就有算，只是以前沒有顯示出來，等於承諾了卻沒兌現。
+  const mine = results.find((r) => r.player.isUser);
+  if (mine?.choice === "D") {
+    const words = [...new Set((mine.hits || []).map((h) => h.word))];
+    if (words.length) {
+      const traits = [...new Set((mine.hits || []).map((h) => PERSONAS[h.key]?.short).filter(Boolean))];
+      rows.push({
+        tone: "ok",
+        text: `📝 你說「${mine.custom}」，我抓到了${words.map((w) => `「${w}」`).join("")}`,
+        sub: traits.length ? `這很${traits.join("、")}，排行程的時候我會往這個方向找。` : "排行程的時候我會把這個考慮進去。",
+      });
+    } else {
+      rows.push({
+        tone: "warn",
+        text: `📝 你說「${mine.custom}」，我先記下來了`,
+        sub: "這句我沒抓到明確的偏好關鍵字，不過還是會列入參考。",
+      });
+    }
+  }
+
   if (roundIdx === 1 && ctx.lagged) {
     rows.push({ tone: "warn", text: "📶 順帶一提：你剛剛在 USJ 轉圈圈的那幾秒，整理券已經被別人搶完了。" });
+  }
+  if (roundIdx === 1 && ctx.won) {
+    rows.push({ tone: "ok", text: "📶 剛才那 2 秒你就搶到整理券了，去趣 eSIM 在人潮裡也是滿速。" });
   }
   if (roundIdx === 2) {
     const fb = budgetFeedback(ctx.budget, results);
@@ -913,6 +950,33 @@ function buildPlan(members, days = 5) {
     splitTitle: `Day ${dShop} 夜間　心齋橋商圈自由探索 2 小時`,
     groups,
   };
+}
+
+/* 遊戲進行中的即時默契：跟結算用同一套「選一樣 + 偏好接近」的算法，
+   只是吃到目前為止的回合。有了它，玩家每選一次就看得到後果，
+   而不是四站都選完才知道自己做了什麼。 */
+function liveVibe(players, history) {
+  if (!history.length) return null;
+  const rows = players.map((p) => ({
+    p,
+    answers: history.map((h) => h.results.find((r) => r.player.id === p.id)),
+  }));
+  const pairs = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    for (let j = i + 1; j < rows.length; j += 1) {
+      const agree = history.filter((_, r) => sameChoice(rows[i].answers[r], rows[j].answers[r])).length / history.length;
+      pairs.push(agree);
+    }
+  }
+  if (!pairs.length) return null;
+  return clamp(Math.round(35 + 65 * mean(pairs)), 12, 99);
+}
+
+/* 這一回合誰跟你選一樣 —— 社交回饋，比分數本身更有感 */
+function whoMatchedMe(results) {
+  const me = results.find((r) => r.player.isUser);
+  if (!me) return [];
+  return results.filter((r) => !r.player.isUser && sameChoice(r, me)).map((r) => r.player);
 }
 
 function analyzeTeam(players, history, seeds, days = 5) {
@@ -1414,7 +1478,7 @@ function SetupScreen({ onStart, toast }) {
   const [quiz, setQuiz] = useState({});
   const [qIdx, setQIdx] = useState(0);
   const [budget, setBudget] = useState("standard");
-  const [network, setNetwork] = useState("roaming");
+  // 網路方案改在第 1 站結束時由趣趣當面問，SETUP 不再佔一個畫面
   const [size, setSize] = useState(4);
   const [destKey, setDestKey] = useState(TRIP.destKey);
   const [date, setDate] = useState(TRIP.date);
@@ -1563,7 +1627,7 @@ function SetupScreen({ onStart, toast }) {
                       </div>
                     </Card>
                   </motion.div>
-                  <Btn className="mt-3 w-full" onClick={() => setStep(1)}>下一步：預算與網路</Btn>
+                  <Btn className="mt-3 w-full" onClick={() => setStep(1)}>下一步：設定預算</Btn>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1602,41 +1666,6 @@ function SetupScreen({ onStart, toast }) {
               </div>
             </Card>
 
-            <Card className="p-4">
-              <Chip><Wifi size={13} /> 行前網路方案</Chip>
-              <h2 className="tm-display mt-2 text-2xl">在日本你打算怎麼上網？</h2>
-              <p className="text-xs opacity-60">這個選擇會真的影響遊戲過程，選到會卡的方案就是會卡。一天差幾十塊，體驗差很多。</p>
-              <div className="mt-3 space-y-2">
-                {NETWORKS.map((n) => (
-                  <motion.button
-                    key={n.key}
-                    type="button"
-                    onClick={() => setNetwork(n.key)}
-                    whileTap={{ scale: 0.98 }}
-                    animate={{ y: network === n.key ? -2 : 0 }}
-                    aria-pressed={network === n.key}
-                    className={`flex w-full items-center gap-3 rounded-2xl border-[3px] border-[#1F2350] p-3 text-left ${network === n.key ? "bg-[#7CC6FE] shadow-[4px_4px_0_#1F2350]" : "bg-white shadow-[2px_2px_0_#1F2350]"}`}
-                  >
-                    <span className="text-2xl">{n.icon}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-black">
-                        {n.name}
-                        {n.tag && <span className="ml-1 rounded-md bg-[#FF6B35] px-1.5 py-0.5 text-[10px] text-white">{n.tag}</span>}
-                      </span>
-                      <span className="block text-xs opacity-70">{n.desc}</span>
-                      <span className="tm-num mt-1 block text-xs font-black">
-                        {n.price ? `${money(n.price)}／日` : "免費"}
-                        <span className="ml-1 font-bold opacity-55">
-                          {n.price ? `・${days} 天共 ${money(n.price * days)}` : `・${days} 天共 ${money(0)}`}
-                        </span>
-                        {n.perk && <span className="ml-1 rounded-md bg-[#2F9E62] px-1.5 py-0.5 text-[10px] text-white">{n.perk}</span>}
-                      </span>
-                    </span>
-                    {network === n.key && <Check size={18} strokeWidth={3} />}
-                  </motion.button>
-                ))}
-              </div>
-            </Card>
 
             <Btn className="w-full" onClick={() => setStep(2)}>下一步：隊伍預備</Btn>
           </>
@@ -1816,7 +1845,7 @@ function SetupScreen({ onStart, toast }) {
                   disabled={!allIn}
                   onClick={() => onStart({
                     nickname: nickname.trim() || "趣友",
-                    players, size, budget, network, seedPersona: seedPersona || "capybara", code, isHost,
+                    players, size, budget, network: null, seedPersona: seedPersona || "capybara", code, isHost,
                     dest: destName, destKey, date, days, coupon,
                   })}
                 >
@@ -2042,6 +2071,42 @@ function MapStrip({ nodeIdx, players, onOpen }) {
   );
 }
 
+/* 默契條。數字會從上一站的值滑到新的值，讓玩家看到自己剛才那一選的後果。 */
+function VibeBar({ value, prev }) {
+  const has = typeof value === "number";
+  const delta = has && typeof prev === "number" ? value - prev : 0;
+  return (
+    <div className="flex items-center gap-2 rounded-2xl border-[3px] border-[#1F2350] bg-white px-3 py-1.5 shadow-[3px_3px_0_#1F2350]">
+      <span className="shrink-0 text-[11px] font-black">團隊默契</span>
+      <div className="h-2.5 flex-1 overflow-hidden rounded-full border-2 border-[#1F2350] bg-[#FFE8D1]">
+        <motion.div
+          className="h-full"
+          style={{ background: has && value >= 70 ? "#6CC08B" : has && value >= 45 ? "#FFC93C" : "#FF8C6B" }}
+          initial={false}
+          animate={{ width: has ? `${value}%` : "0%" }}
+          transition={{ type: "spring", stiffness: 90, damping: 16 }}
+        />
+      </div>
+      <span className="tm-num w-9 shrink-0 text-right text-sm font-black">
+        {has ? <CountUp key={value} to={value} duration={0.7} /> : "—"}
+      </span>
+      <AnimatePresence>
+        {delta !== 0 && (
+          <motion.span
+            key={`${value}-${delta}`}
+            initial={{ opacity: 0, y: 6, scale: 0.8 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6 }}
+            className={`tm-num shrink-0 text-[11px] font-black ${delta > 0 ? "text-[#1F7A55]" : "text-[#B8440E]"}`}
+          >
+            {delta > 0 ? `▲${delta}` : `▼${-delta}`}
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function GameMap({ nodeIdx, players, banner, onClose }) {
   return (
     <Card className="relative overflow-hidden p-0">
@@ -2171,6 +2236,13 @@ const LAG_STEPS = [
   "訊號不穩，重新嘗試連線⋯⋯",
   "頁面載入完成：整理券已全數發完 😵",
 ];
+// 選了去趣 eSIM 的人走這條。同一個瞬間、同樣的緊張，但結局是贏的——
+// 不然最可能買單的人，反而從頭到尾沒被說服過。
+const FAST_STEPS = [
+  "正在載入整理券預約頁⋯⋯",
+  "頁面秒開，正在送出預約⋯⋯",
+  "預約成功：下午 2:30 的整理券到手 🎉",
+];
 
 /* 訊號格會一直閃，讓這 6 秒看起來真的在掙扎 */
 function SignalBars({ dead }) {
@@ -2192,20 +2264,22 @@ function SignalBars({ dead }) {
 }
 
 function LagModal({ network, onDone }) {
+  const win = network === "esim";
+  const STEPS = win ? FAST_STEPS : LAG_STEPS;
   const [step, setStep] = useState(0);
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
 
   useEffect(() => {
-    if (step >= LAG_STEPS.length - 1) { sfx("fail"); return undefined; }
-    sfx(step === 0 ? "dial" : "glitch");
-    // 每 550ms 補一聲很輕的重試音，不然這 6 秒只有畫面在動、耳朵是空的
-    const beat = setInterval(() => sfx("retry"), 550);
-    const t = setTimeout(() => setStep((s) => s + 1), 1800);
-    return () => { clearInterval(beat); clearTimeout(t); };
-  }, [step]);
+    if (step >= STEPS.length - 1) { sfx(win ? "fanfare" : "fail"); return undefined; }
+    sfx(win ? "dial" : (step === 0 ? "dial" : "glitch"));
+    // 順的那條不需要重試音；卡的那條每 550ms 補一聲，不然這 6 秒耳朵是空的
+    const beat = win ? null : setInterval(() => sfx("retry"), 550);
+    const t = setTimeout(() => setStep((s) => s + 1), win ? 900 : 1800);
+    return () => { if (beat) clearInterval(beat); clearTimeout(t); };
+  }, [step, win, STEPS.length]);
 
-  const last = step === LAG_STEPS.length - 1;
+  const last = step === STEPS.length - 1;
   const net = NETWORKS.find((n) => n.key === network);
 
   return (
@@ -2217,36 +2291,108 @@ function LagModal({ network, onDone }) {
     >
       <motion.div initial={{ scale: 0.85, y: 20 }} animate={{ scale: 1, y: 0 }} className="w-full max-w-sm">
         <Card className="p-5 text-center">
-          <div className="flex items-center justify-center gap-2 text-sm font-black text-[#E8453C]">
-            <SignalBars dead={last} /> 3G　訊號 {last ? "0" : "1"} 格　{net?.name}
+          <div className={`flex items-center justify-center gap-2 text-sm font-black ${win ? "text-[#1F7A55]" : "text-[#E8453C]"}`}>
+            {win
+              ? <><Wifi size={16} /> 5G　訊號滿格　{net?.name}</>
+              : <><SignalBars dead={last} /> 3G　訊號 {last ? "0" : "1"} 格　{net?.name}</>}
           </div>
           {/* 轉圈會時快時慢、偶爾抖一下，看起來才像卡住而不是在讀取 */}
-          <motion.div
-            className="mx-auto mt-4 w-fit"
-            animate={last ? { rotate: 0, scale: 0.9, opacity: 0.35 } : { rotate: [0, 190, 210, 360], x: [0, 0, -2, 2, 0] }}
-            transition={last ? { duration: 0.3 } : { repeat: Infinity, duration: 1.6, ease: "linear", times: [0, 0.45, 0.62, 1] }}
-          >
-            <Loader size={54} strokeWidth={3} color={last ? "#E8453C" : INK} />
-          </motion.div>
+          {last && win ? (
+            <motion.div className="mx-auto mt-4 w-fit" initial={{ scale: 0, rotate: -30 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 300, damping: 14 }}>
+              <div className="grid h-14 w-14 place-items-center rounded-full border-[4px] border-[#1F2350] bg-[#6CC08B]">
+                <Check size={30} strokeWidth={4} />
+              </div>
+            </motion.div>
+          ) : (
+            /* 卡的那條：轉圈時快時慢、偶爾抖一下，看起來才像卡住而不是在讀取 */
+            <motion.div
+              className="mx-auto mt-4 w-fit"
+              animate={last ? { rotate: 0, scale: 0.9, opacity: 0.35 } : win ? { rotate: 360 } : { rotate: [0, 190, 210, 360], x: [0, 0, -2, 2, 0] }}
+              transition={last ? { duration: 0.3 } : win ? { repeat: Infinity, duration: 0.6, ease: "linear" } : { repeat: Infinity, duration: 1.6, ease: "linear", times: [0, 0.45, 0.62, 1] }}
+            >
+              <Loader size={54} strokeWidth={3} color={last ? "#E8453C" : INK} />
+            </motion.div>
+          )}
           <AnimatePresence mode="wait">
             <motion.p key={step} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="mt-4 text-[15px] font-bold leading-relaxed">
-              {LAG_STEPS[step]}
+              {STEPS[step]}
             </motion.p>
           </AnimatePresence>
           <div className="mt-3 h-3 overflow-hidden rounded-full border-[3px] border-[#1F2350] bg-white">
             <motion.div
-              className="h-full bg-[#E8453C]"
-              animate={{ width: ["8%", "37%", "100%"][step] || "8%" }}
-              transition={{ duration: last ? 0.4 : 1.5, ease: last ? "easeOut" : "easeInOut" }}
+              className={`h-full ${win ? "bg-[#2F9E62]" : "bg-[#E8453C]"}`}
+              animate={{ width: (win ? ["45%", "80%", "100%"] : ["8%", "37%", "100%"])[step] || "8%" }}
+              transition={{ duration: win ? 0.5 : (last ? 0.4 : 1.5), ease: last ? "easeOut" : "easeInOut" }}
             />
           </div>
           <p className="mt-3 text-xs leading-relaxed opacity-60">
-            人潮擁擠的園區裡，共用熱點和漫遊降速都會變成這樣。這 6 秒就是別人搶到整理券的時間。
+            {win
+              ? "園區裡上萬人同時連線，你這 2 秒就進去了。隔壁那團還在轉圈圈——整理券就是這樣分出勝負的。"
+              : "人潮擁擠的園區裡，共用熱點和漫遊降速都會變成這樣。這 6 秒就是別人搶到整理券的時間。"}
           </p>
           <Btn className="mt-4 w-full" disabled={!last} onClick={() => doneRef.current()}>
-            {last ? <><WifiOff size={18} /> 好吧⋯⋯繼續遊戲</> : "連線中，請稍候"}
+            {last
+              ? (win ? <><Wifi size={18} /> 太順了，繼續遊戲</> : <><WifiOff size={18} /> 好吧⋯⋯繼續遊戲</>)
+              : "連線中，請稍候"}
           </Btn>
         </Card>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ---------- 趣趣問網路方案（第 1 站結束、去 USJ 之前） ---------- */
+function NetworkAsk({ days, onPick }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[#1F2350]/80 px-5 py-6"
+    >
+      <motion.div initial={{ scale: 0.88, y: 24 }} animate={{ scale: 1, y: 0 }} transition={{ type: "spring", stiffness: 280, damping: 22 }} className="w-full max-w-sm">
+        <div className="flex justify-center">
+          <Mascot size={92} bg={false} float={false} face="think" />
+        </div>
+        <div className="relative rounded-3xl border-[3px] border-[#1F2350] bg-white p-4 shadow-[5px_5px_0_#FF6B35]">
+          <span className="absolute -top-3 left-4 rounded-lg border-[3px] border-[#1F2350] bg-[#FF6B35] px-2 py-0.5 text-xs font-black text-white">趣趣</span>
+          <p className="mt-1 text-[16px] leading-relaxed">
+            對了，明天一早要衝 USJ 搶整理券⋯⋯<br />
+            你這趟打算怎麼上網？
+          </p>
+          <p className="mt-1.5 text-[11px] font-bold leading-relaxed opacity-55">
+            這個選擇會真的影響接下來的遊戲。選到會卡的方案，就是會卡。
+          </p>
+          <div className="mt-3 space-y-2">
+            {NETWORKS.map((nw, i) => (
+              <motion.button
+                key={nw.key}
+                type="button"
+                onClick={() => { sfx("select"); onPick(nw.key); }}
+                whileTap={{ scale: 0.98 }}
+                initial={{ opacity: 0, x: -14 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 + i * 0.07 }}
+                className="flex w-full items-center gap-2.5 rounded-2xl border-[3px] border-[#1F2350] bg-white p-2.5 text-left shadow-[2px_2px_0_#1F2350]"
+              >
+                <span className="text-xl">{nw.icon}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-black leading-snug">{nw.name}</span>
+                  <span className="mt-0.5 block text-[11px] leading-snug opacity-65">
+                    {nw.tag && (
+                      <span className="mr-1 whitespace-nowrap rounded-md bg-[#FF6B35] px-1.5 py-0.5 text-[10px] font-black text-white">{nw.tag}</span>
+                    )}
+                    {nw.desc}
+                  </span>
+                </span>
+                <span className="tm-num shrink-0 text-right text-[11px] font-black leading-tight">
+                  {nw.price ? `${money(nw.price)}／日` : "免費"}
+                  <span className="block font-bold opacity-50">{days} 天 {money(nw.price * days)}</span>
+                </span>
+              </motion.button>
+            ))}
+          </div>
+        </div>
       </motion.div>
     </motion.div>
   );
@@ -3602,7 +3748,7 @@ function SwipeCard({ poi, reason, chips = [], persona, x, top, depth, onDragEnd 
   );
 }
 
-function SwipeDeck({ member, budget, day, slot, excludeIds, onDone, onClose }) {
+function SwipeDeck({ member, budget, day, slot, excludeIds, autoStart = false, onDone, onClose }) {
   const [stage, setStage] = useState("pref");
   const [prefTags, setPrefTags] = useState([]);
   const [keyword, setKeyword] = useState("");
@@ -3623,8 +3769,8 @@ function SwipeDeck({ member, budget, day, slot, excludeIds, onDone, onClose }) {
 
   const toggleTag = (t) => setPrefTags((s) => (s.includes(t) ? s.filter((k) => k !== t) : s.length >= 3 ? s : [...s, t]));
 
-  const startSwiping = () => {
-    const tags = [...new Set([...prefTags, ...tagsFromKeyword(keyword)])];
+  const startSwiping = useCallback((tags0) => {
+    const tags = tags0 || [...new Set([...prefTags, ...tagsFromKeyword(keyword)])];
     const w = initTagWeights(member, tags);
     const q = recommend(w, seen.current, CARDS_PER_ROUND, ctx);
     q.forEach((p) => seen.current.add(p.id));
@@ -3635,7 +3781,16 @@ function SwipeDeck({ member, budget, day, slot, excludeIds, onDone, onClose }) {
     setRoundPicked([]);
     if (!q.length) { setExhausted(true); setStage("round"); return; }
     setStage("swipe");
-  };
+  }, [prefTags, keyword, member, ctx]);
+
+  // autoStart：直接用人格帶出來的權重開滑，跳過挑標籤那一步。
+  // 玩家剛用四站回答過偏好了，再問一次標籤是多餘的摩擦。
+  const bootRef = useRef(false);
+  useEffect(() => {
+    if (!autoStart || bootRef.current) return;
+    bootRef.current = true;
+    startSwiping([]);
+  }, [autoStart, startSwiping]);
 
   const commit = (like) => {
     const poi = queue[idx];
@@ -4199,7 +4354,13 @@ function tripNetworkNeeds(board, session, analysis) {
 
   // 抓一點餘裕：估 1.2GB 就建議買 2GB，免得下午就降速；超過 2.2GB 直接建議吃到飽
   const recommended = gbPerDay >= 2.2 ? "unlimited" : gbPerDay >= 1.2 ? "g2" : gbPerDay >= 0.7 ? "g1" : "m500";
-  return { gbPerDay, drivers: drivers.slice(0, 4), recommended, days, spots: pois.length };
+  return {
+    gbPerDay, drivers: drivers.slice(0, 4), recommended, days, spots: pois.length,
+    // 分流是整個導購最有說服力的一句話：它具體、有畫面、而且是算出來的
+    groups,
+    splitTitle: analysis?.plan?.splitTitle || "",
+    groupNames: (analysis?.plan?.groups || []).map((g) => ({ icon: g.icon, name: g.name, members: g.members })),
+  };
 }
 
 /**
@@ -4274,7 +4435,7 @@ function renderItineraryImage({ session, board, analysis }) {
     });
     h += 28;
   });
-  h += 210; // footer
+  h += 210 + 164; // footer（優惠碼）＋ 邀請卡
 
   const canvas = document.createElement("canvas");
   const dpr = 2;
@@ -4404,6 +4565,23 @@ function renderItineraryImage({ session, board, analysis }) {
   ctx.fillStyle = "rgba(31,35,80,.7)";
   const foot = wrapText(ctx, "出發前記得開通 eSIM，分頭行動時才找得到彼此。", W - PAD * 2 - 64);
   foot.forEach((ln, i) => ctx.fillText(ln, PAD + 32, y + 96 + i * 32));
+  y += 164;
+
+  // 邀請卡：這張圖被轉傳出去的時候，順便把人帶進房間
+  ctx.fillStyle = ink;
+  roundRectPath(ctx, PAD, y, W - PAD * 2, 128, 24);
+  ctx.fill();
+  ctx.fillStyle = "#FFC93C";
+  ctx.font = `700 24px ${FONT}`;
+  ctx.fillText("也想一起排？在去趣 TripMate 輸入房間代碼", PAD + 32, y + 46);
+  ctx.fillStyle = "#fff";
+  ctx.font = `900 46px ${FONT}`;
+  ctx.fillText(session.code || "OSK-XXXX", PAD + 32, y + 98);
+  ctx.fillStyle = "rgba(255,255,255,.55)";
+  ctx.font = `700 22px ${FONT}`;
+  ctx.textAlign = "right";
+  ctx.fillText(`${session.players.length} 人已在房間裡`, W - PAD - 32, y + 98);
+  ctx.textAlign = "left";
 
   return canvas.toDataURL("image/png");
 }
@@ -4477,7 +4655,7 @@ function ExportSheet({ session, board, analysis, onClose, onSeePlans, toast }) {
 }
 
 /* ---------- 依行程推薦的方案 + 個人加價升級 ---------- */
-function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClose, toast }) {
+function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClose, onExport, toast }) {
   const needs = useMemo(() => tripNetworkNeeds(board, session, analysis), [board, session, analysis]);
   const base = PLAN_BY_KEY[needs.recommended];
   const days = session.days || 5;
@@ -4590,7 +4768,34 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
             </div>
           )}
 
-          {/* 用量估算 */}
+          {/* 分流當主標：這是唯一「屬於他們這一團」的理由，比 GB 數字有畫面 */}
+          {needs.groups > 1 && (
+            <div className="mt-3 rounded-2xl border-[3px] border-[#1F2350] bg-[#F3EEFF] p-3">
+              <div className="flex items-center gap-1.5">
+                <span className="rounded-md bg-[#5B3FC4] px-1.5 py-0.5 text-[10px] font-black text-white">你們的行程算出來的</span>
+              </div>
+              <div className="tm-display mt-1 text-[22px] leading-tight">
+                你們會分成 {needs.groups} 組行動
+              </div>
+              {needs.splitTitle && <div className="mt-0.5 text-xs font-bold opacity-65">{needs.splitTitle}</div>}
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {needs.groupNames.map((g) => (
+                  <span key={g.name} className="inline-flex items-center gap-1 rounded-xl border-2 border-[#1F2350]/25 bg-white px-2 py-1">
+                    <span className="text-xs font-bold">{g.icon} {g.name}</span>
+                    <span className="flex -space-x-1.5">
+                      {(g.members || []).map((mb) => <Avatar key={mb.id} p={mb} size={16} />)}
+                    </span>
+                  </span>
+                ))}
+              </div>
+              <p className="mt-2 text-[12px] font-bold leading-relaxed">
+                分開的時候，每個人都要能自己導航、自己叫車、自己傳位置——
+                <span className="text-[#5B3FC4]">這是一人一張最實際的理由。</span>
+              </p>
+            </div>
+          )}
+
+          {/* 用量估算：分流之後的理性佐證 */}
           <div className="mt-3 rounded-2xl border-2 border-[#1F2350] bg-[#FFF8EE] p-3">
             <div className="flex items-end gap-2">
               <span className="tm-num text-[34px] font-black leading-none text-[#FF6B35]">{needs.gbPerDay}</span>
@@ -4629,10 +4834,12 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
           </div>
 
           {/* 一起買的真正好處不是折扣（折扣本來就有），而是不用共用熱點 */}
-          <Fold className="mt-2" tone="#FFF3A6" title="為什麼建議一人一張，而不是開熱點分享？">
-            熱點會受手機系統限制（SoftBank 方案的 Android 無法開熱點），而且一分流就有人沒網路。
+          {/* 「我開熱點就好」是最常見的反對意見，直接擺出來回答，不收摺 */}
+          <div className="mt-2 rounded-2xl border-2 border-dashed border-[#1F2350] bg-[#FFF3A6] p-2.5 text-[11.5px] leading-relaxed">
+            <span className="font-black">開熱點分享不行嗎？</span>
+            會受手機系統限制（SoftBank 方案的 Android 無法開熱點），而且<span className="font-black">一分流就有人沒網路</span>。
             每日流量型每天最低 {money(salePerDay(ESIM_PLANS[0]))} 起，各自裝一張最單純。
-          </Fold>
+          </div>
 
           {/* 我的方案：這支手機只決定自己的 */}
           <div className="mt-3">
@@ -4786,8 +4993,18 @@ function NetworkPlanSheet({ session, board, analysis, locked, onPurchase, onClos
                 <li>· 建議<span className="font-black">出發當天再在台灣掃描啟用</span>，掃了就開始計算天數。</li>
                 <li>· 還想改行程？回行程頁「解除定版」，改完重新定版，我會告訴你這個方案還夠不夠用。</li>
               </ul>
-              <Btn variant="ink" className="mt-2.5 w-full" onClick={onClose}>
-                <ChevronLeft size={16} /> 回到行程
+              {/* 買完的收尾：把行程存成圖片傳出去，情緒收束 + 順便帶人進房間 */}
+              <div className="mt-2.5 rounded-2xl border-[3px] border-[#1F2350] bg-white p-3">
+                <div className="tm-display text-[17px] leading-tight">行程存好了，網路也備好了</div>
+                <p className="mt-0.5 text-[11.5px] leading-relaxed opacity-70">
+                  把這份行程傳到群組吧——圖片上有房間代碼，還沒加入的朋友輸入就能一起排。
+                </p>
+                <Btn className="mt-2 w-full" onClick={() => { onClose(); onExport?.(); }}>
+                  <ImageDown size={18} /> 存成圖片傳到 LINE 群
+                </Btn>
+              </div>
+              <Btn variant="ghost" className="mt-2 w-full" onClick={onClose}>
+                <ChevronLeft size={16} /> 先回到行程
               </Btn>
             </div>
           ) : (
@@ -4870,11 +5087,14 @@ function CouponReminder({ session, toast }) {
   );
 }
 
+let planIntroSeen = false;
 function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorderSlot, onMoveItem, onBack, locked, lockVote, onProposeLock, onCancelLock, onBusyChange, onUnlock, onPurchase, toast }) {
   const days = session.days || 5;
   const planDays = useMemo(() => buildPlanDays(days), [days]);
   const [day, setDay] = useState(Math.min(2, days));
   const [deck, setDeck] = useState(null);
+  // 剛進排行程的第一件事是「玩」，不是面對一張表格
+  const [intro, setIntro] = useState(!planIntroSeen);
   const [review, setReview] = useState(null);
   const [alert, setAlert] = useState(null);
   const [sheet, setSheet] = useState(null); // export | plans
@@ -4998,6 +5218,39 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
             </Fold>
           )}
 
+          {/* 進來先滑卡：把遊戲的能量接下去，而不是直接丟一張行程表 */}
+          <AnimatePresence>
+            {intro && !frozen && (
+              <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                <Card className="p-4" style={{ background: "#FFF3A6" }}>
+                  <div className="flex items-start gap-3">
+                    <Mascot size={62} bg={false} float={false} face="happy" />
+                    <div className="min-w-0 flex-1">
+                      <div className="tm-display text-xl leading-tight">先幫你們排好 {board.length} 個地點了</div>
+                      <p className="mt-1 text-sm leading-relaxed">
+                        要不要再滑幾張看看？<span className="font-black">喜歡的右滑</span>，我會自動幫你排進排得下的時段。
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <Btn className="w-full" onClick={() => {
+                      planIntroSeen = true; setIntro(false);
+                      const spot = planDays
+                        .flatMap((d) => slotsForDay(d, board).map((sl) => ({ day: d.day, slot: sl })))
+                        .find((x) => x.slot !== ALL_DAY_SLOT);
+                      if (spot) { setDay(spot.day); setDeck({ ...spot, auto: true }); }
+                    }}>
+                      <Sparkles size={18} /> 開始滑卡
+                    </Btn>
+                    <Btn variant="ghost" className="w-full" onClick={() => { planIntroSeen = true; setIntro(false); }}>
+                      直接看行程
+                    </Btn>
+                  </div>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <div className="tm-noscroll -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
             {planDays.map((d) => {
               const count = board.filter((i) => i.day === d.day).length;
@@ -5050,7 +5303,28 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
           </AnimatePresence>
 
           {/* 行程要先定版，之後的導出與方案才有意義 */}
-          {voting ? (
+          {voting && lockVote.blockedBy ? (
+            /* 有人喊停：這才是「行程要有共識」真正成立的地方 */
+            <Card className="p-4" style={{ background: "#FFE1D3" }}>
+              <div className="flex items-start gap-3">
+                <Avatar p={lockVote.blockedBy} size={40} />
+                <div className="min-w-0 flex-1">
+                  <div className="tm-display text-xl leading-tight">{lockVote.blockedBy.name} 想再改一個地方</div>
+                  <p className="mt-1 text-sm leading-relaxed">
+                    定版提議先退回了。行程還沒談攏之前，算出來的網路用量也不會準。
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <Btn className="w-full" onClick={() => { sfx("tap"); onCancelLock(); }}>
+                  好，再調整一下
+                </Btn>
+                <Btn variant="ghost" className="w-full" onClick={() => { sfx("tap"); onProposeLock(); }}>
+                  <Lock size={16} /> 再提議一次
+                </Btn>
+              </div>
+            </Card>
+          ) : voting ? (
             <Card className="p-4" style={{ background: "#ECE5FF" }}>
               <div className="flex items-start gap-3">
                 <span className="text-3xl">🗳️</span>
@@ -5197,6 +5471,7 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
             day={deck.day}
             slot={deck.slot}
             excludeIds={excludeIds}
+            autoStart={deck.auto}
             onClose={() => setDeck(null)}
             onDone={finishDeck}
           />
@@ -5247,6 +5522,7 @@ function PlanScreen({ session, analysis, board, feed, onAdd, onRemove, onReorder
             onPurchase={onPurchase}
             toast={toast}
             onClose={() => setSheet(null)}
+            onExport={() => setTimeout(() => setSheet("export"), 260)}
           />
         )}
       </AnimatePresence>
@@ -5279,6 +5555,7 @@ export default function App() {
   const [lockVote, setLockVote] = useState(null);
   // 使用者正開著滑卡／方案單／對話框時，隊友也先別動，不然會在背後抽換
   const [planBusy, setPlanBusy] = useState(false);
+  const lockTriesRef = useRef(0);
   const pendingRef = useRef(null);
   const boardRef = useRef(board);
   boardRef.current = board;
@@ -5325,10 +5602,13 @@ export default function App() {
   }, []);
 
   const handleSubmit = useCallback((results) => {
-    const lagNow = roundIdx === 1 && session.network !== "esim";
+    // 第 2 站是網路決定勝負的一刻，每個人都要經歷，只是結局不同：
+    // 選了 eSIM 的人搶到整理券，其他人看著它被搶完。
+    const netMoment = roundIdx === 1;
+    const lost = session.network !== "esim";
     pendingRef.current = { results };
-    if (lagNow) {
-      setSession((s) => ({ ...s, lagged: true }));
+    if (netMoment) {
+      if (lost) setSession((s) => ({ ...s, lagged: true }));
       setModal({ type: "lag" });
     } else {
       setModal({ type: "hint", results, hint: buildHint(roundIdx, results, { lagged: session.lagged, budget: session.budget }) });
@@ -5337,14 +5617,14 @@ export default function App() {
 
   const afterLag = useCallback(() => {
     const { results } = pendingRef.current;
-    setModal({ type: "hint", results, hint: buildHint(roundIdx, results, { lagged: true, budget: session.budget }) });
+    setModal({
+      type: "hint",
+      results,
+      hint: buildHint(roundIdx, results, { lagged: session.network !== "esim", won: session.network === "esim", budget: session.budget }),
+    });
   }, [roundIdx, session]);
 
-  const closeHint = useCallback(() => {
-    const { results } = pendingRef.current || {};
-    setModal(null);
-    if (!results) return;
-    setHistory((h) => [...h.slice(0, roundIdx), { results }]);
+  const goNextStation = useCallback(() => {
     const nextNode = Math.min(nodeIdx + 1, MAP_NODES.length - 1);
     const last = roundIdx >= ROUNDS.length - 1;
     // 轉場蓋住畫面的那 0.6 秒，才把底下的回合換掉，換題就不會閃一下
@@ -5366,6 +5646,27 @@ export default function App() {
     });
   }, [roundIdx, nodeIdx]);
 
+  const closeHint = useCallback(() => {
+    const { results } = pendingRef.current || {};
+    setModal(null);
+    if (!results) return;
+    setHistory((h) => [...h.slice(0, roundIdx), { results }]);
+    // 網路方案在第 1 站結束時才問：下一站就是搶整理券，
+    // 這樣「選錯會卡」的後果是來自剛做的選擇，而不是六個畫面前的一題。
+    if (roundIdx === 0 && !session?.network) {
+      setTimeout(() => setModal({ type: "network" }), 260);
+      return;
+    }
+    goNextStation();
+  }, [roundIdx, session, goNextStation]);
+
+  const pickNetwork = useCallback((key) => {
+    setSession((st) => ({ ...st, network: key }));
+    pushFeed("ai", `你選了「${NETWORKS.find((x) => x.key === key)?.name}」，明天 USJ 就知道差在哪了。`);
+    setModal(null);
+    setTimeout(goNextStation, 200);
+  }, [pushFeed, goNextStation]);
+
   const restart = useCallback(() => {
     setPhase("SETUP");
     setSession(null);
@@ -5382,6 +5683,12 @@ export default function App() {
     setLocked(null);
     pendingRef.current = null;
   }, []);
+
+  // 即時默契：每答完一站重算一次，遊戲中就看得到自己選擇的後果
+  const vibeNow = useMemo(() => (session ? liveVibe(session.players, history) : null), [session, history]);
+  const vibePrevRef = useRef(null);
+  const vibePrev = vibePrevRef.current;
+  useEffect(() => { vibePrevRef.current = vibeNow; }, [vibeNow]);
 
   const analysis = useMemo(() => {
     if (!session || history.length < ROUNDS.length) return null;
@@ -5461,7 +5768,8 @@ export default function App() {
 
   const proposeLock = useCallback(() => {
     if (!session || !boardRef.current.length) return;
-    setLockVote({ at: Date.now(), by: "me", agreed: ["me"] });
+    lockTriesRef.current += 1;
+    setLockVote({ at: Date.now(), by: "me", agreed: ["me"], round: lockTriesRef.current });
     pushFeed("me", "你提議把這份行程定版，等大家點同意。");
     toast("已送出定版提議，行程先凍結");
   }, [session, pushFeed, toast]);
@@ -5477,23 +5785,39 @@ export default function App() {
   useEffect(() => {
     if (!voteAt || !session) return undefined;
     const mates = session.players.filter((p) => !p.isUser);
+    if (!mates.length) return undefined;
+    // 第一次提議有機會被退回：有人想再改。沒有這個，「要有共識」只是個儀式。
+    const holdout = (lockVote.round || 1) === 1 && Math.random() < 0.55
+      ? mates[Math.floor(Math.random() * mates.length)]
+      : null;
     let acc = 900;
-    const timers = mates.map((m) => {
+    const timers = [];
+    mates.forEach((m) => {
       acc += 600 + Math.random() * 1000;
-      return setTimeout(() => {
+      if (holdout && m.id === holdout.id) {
+        const at = acc;
+        timers.push(setTimeout(() => {
+          sfx("warn");
+          setLockVote((v) => (v && v.at === voteAt ? { ...v, blockedBy: m } : v));
+          pushFeed(m.id, `${m.name}：等等，我想再改一個地方 🙋`);
+          toast(`${m.name} 想再調整一下，定版先暫停`);
+        }, at));
+        return;
+      }
+      timers.push(setTimeout(() => {
         sfx("select");
-        setLockVote((v) => (v && v.at === voteAt && !v.agreed.includes(m.id)
+        setLockVote((v) => (v && v.at === voteAt && !v.blockedBy && !v.agreed.includes(m.id)
           ? { ...v, agreed: [...v.agreed, m.id] }
           : v));
         pushFeed(m.id, `${m.name} 同意定版 👍`);
-      }, acc);
+      }, acc));
     });
     return () => timers.forEach(clearTimeout);
-  }, [voteAt, session, pushFeed]);
+  }, [voteAt, session, pushFeed, toast]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // 全員到齊才真的鎖定
   useEffect(() => {
-    if (!lockVote || !session) return undefined;
+    if (!lockVote || !session || lockVote.blockedBy) return undefined;
     if (lockVote.agreed.length < session.players.length) return undefined;
     const t = setTimeout(() => { lockPlan(); setLockVote(null); }, 700);
     return () => clearTimeout(t);
@@ -5623,7 +5947,9 @@ export default function App() {
                   ) : (
                     <Chip className="tm-num shrink-0">房間 {session.code}</Chip>
                   )}
-                  <Chip className="shrink-0">{session.network === "esim" ? <Wifi size={12} /> : <WifiOff size={12} />} {session.network === "esim" ? "5G" : "3G"}</Chip>
+                  {session.network && (
+                    <Chip className="shrink-0">{session.network === "esim" ? <Wifi size={12} /> : <WifiOff size={12} />} {session.network === "esim" ? "5G" : "3G"}</Chip>
+                  )}
                 </>
               )}
             </div>
@@ -5644,6 +5970,7 @@ export default function App() {
                   </motion.div>
                 )}
               </AnimatePresence>
+              <VibeBar value={vibeNow} prev={vibePrev} />
               <AnimatePresence mode="wait">
                 <motion.div key={roundIdx} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -18 }} transition={{ duration: 0.25 }}>
                   <RoundCard roundIdx={roundIdx} players={session.players} profile={session} onSubmit={handleSubmit} ready={!opening && !transition} />
@@ -5682,6 +6009,7 @@ export default function App() {
         <AnimatePresence>
           {modal?.type === "lag" && <LagModal key="lag" network={session.network} onDone={afterLag} />}
           {modal?.type === "hint" && <HintModal key="hint" roundIdx={roundIdx} results={modal.results} hint={modal.hint} onClose={closeHint} />}
+          {modal?.type === "network" && <NetworkAsk key="network" days={session.days || 5} onPick={pickNetwork} />}
         </AnimatePresence>
 
         <AnimatePresence>
