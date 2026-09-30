@@ -214,6 +214,8 @@ const AudioEngine = (() => {
       tone(b, { f: 233, type: "square", dur: 0.3, vol: 0.08, at: 0.27 });
       tone(b, { f: 90, to: 55, type: "sine", dur: 0.5, vol: 0.12, at: 0.3 });
     },
+    // 打字：非常輕的一聲，連續播也不刺耳
+    blip: (b) => tone(b, { f: 1150, to: 1000, type: "square", dur: 0.022, vol: 0.022 }),
     // 出發：往上衝的風切 + 爬升音
     takeoff: (b) => {
       noise(b, { dur: 0.7, vol: 0.1, from: 300, to: 3400 });
@@ -626,6 +628,7 @@ const ROUNDS = [
   {
     id: 1, node: 0, title: "晨間集合", subtitle: "大阪冬晨的起床考驗", clock: "07:00 清晨",
     scene: "2 月初的大阪清晨只有 5 度，窗外冷風颼颼，但今天原定要一早衝去木津卸賣市場吃排隊海鮮丼與白草莓⋯⋯",
+    line: "早安⋯⋯窗外只有 5 度耶。今天本來要一早衝木津市場，吃排隊海鮮丼跟白草莓的，你還起得來嗎？", face: "think",
     placeholder: "輸入你的真實應對⋯⋯",
     advice: "這半天直接分頭走，友情比較保險。",
     options: {
@@ -637,6 +640,7 @@ const ROUNDS = [
   {
     id: 2, node: 1, title: "USJ 的分歧考驗", subtitle: "整理券只剩下午極少時段", clock: "10:30 上午",
     scene: "全隊抵達 USJ，入園才發現「超級任天堂世界」整理券只剩下午極少時段，且園區人潮滿患——所有人同時掏出手機⋯⋯",
+    line: "糟了！超級任天堂世界的整理券只剩下午幾個時段，園區又爆滿⋯⋯大家都掏出手機了，你要怎麼辦？", face: "surprise",
     placeholder: "輸入你的遊園大招⋯⋯",
     advice: "USJ 這 3 小時建議分流，晚點再約集合時間。",
     options: {
@@ -648,6 +652,7 @@ const ROUNDS = [
   {
     id: 3, node: 2, title: "道頓堀晚餐攻防", subtitle: "預算與食慾的正面對決", clock: "18:00 傍晚",
     scene: "細雨中的道頓堀，霓虹全開、香味四溢。名店門口排著長龍，隔壁巷子也飄出醬香，大家的肚子同時叫了⋯⋯",
+    line: "聞到了嗎？名店門口排了長長一條，可是隔壁巷子也飄出醬香⋯⋯大家肚子同時叫了，今晚吃哪邊？", face: "happy",
     placeholder: "輸入你的晚餐方案⋯⋯",
     advice: "晚餐可以各吃各的，甜點再會合。",
     options: {
@@ -659,6 +664,7 @@ const ROUNDS = [
   {
     id: 4, node: 3, title: "心齋橋分流行動", subtitle: "20:30 打烊前的最後衝刺", clock: "18:30 夜晚",
     scene: "夜幕降臨心齋橋筋商店街，藥妝店、Bic Camera 與古著店分散在不同街區，而店鋪即將在 20:30 打烊⋯⋯",
+    line: "藥妝店、Bic Camera、古著店散在不同街區，而且 20:30 就打烊⋯⋯只剩兩小時，你想怎麼分？", face: "worry",
     placeholder: "輸入你的最後衝刺方式⋯⋯",
     advice: "今晚分頭逛，回飯店再開戰利品發表會。",
     options: {
@@ -1019,6 +1025,42 @@ function Fold({ title, icon, defaultOpen = false, tone = "#FFF8EE", className = 
   );
 }
 
+/* 逐字顯示。點一下整段跳出來；同一段看過第二次就直接全顯，demo 時不卡。 */
+const typedOnce = new Set();
+function Typewriter({ text, id, speed = 42, start = true, onDone }) {
+  const instant = typedOnce.has(id);
+  const [n, setN] = useState(instant ? text.length : 0);
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+
+  useEffect(() => {
+    if (typedOnce.has(id)) { setN(text.length); doneRef.current?.(); return undefined; }
+    if (!start) { setN(0); return undefined; }
+    setN(0);
+    let i = 0;
+    const t = setInterval(() => {
+      i += 1;
+      setN(i);
+      if (i % 3 === 0) sfx("blip");
+      if (i >= text.length) {
+        clearInterval(t);
+        typedOnce.add(id);
+        doneRef.current?.();
+      }
+    }, speed);
+    return () => clearInterval(t);
+  }, [text, id, speed, start]);
+
+  const done = n >= text.length;
+  return (
+    <>
+      <span>{text.slice(0, n)}</span>
+      {/* 還沒打出來的字用透明的佔位，高度才不會一直跳，但也看不到接下來要講什麼 */}
+      {!done && <span className="opacity-0" aria-hidden="true">{text.slice(n)}</span>}
+    </>
+  );
+}
+
 function Chip({ children, className = "" }) {
   return (
     <span className={`inline-flex items-center gap-1 rounded-full border-2 border-[#1F2350] bg-white px-2.5 py-0.5 text-xs font-bold ${className}`}>
@@ -1256,9 +1298,42 @@ function GearLayer({ content, delay }) {
   );
 }
 
-function Mascot({ persona = null, size = 160, bg = true, delay = 0, float = true }) {
+/* 趣趣的表情：只換嘴型、眼睛和手的角度，沒有新增任何圖檔。
+   face 預設 "idle"，所以原本用到 Mascot 的地方長相完全不變。 */
+const FACE = {
+  idle:     { mouth: "M92 118 Q100 126 108 118", eye: "open",   arm: 0 },
+  talk:     { mouth: "M90 117 Q100 130 110 117", eye: "open",   arm: -14 },
+  happy:    { mouth: "M87 115 Q100 133 113 115", eye: "closed", arm: -26 },
+  think:    { mouth: "M94 123 L106 121",          eye: "up",     arm: 0 },
+  surprise: { mouth: "round",                     eye: "wide",   arm: -34 },
+  worry:    { mouth: "M91 124 Q95.5 118 100 124 Q104.5 130 109 124", eye: "open", arm: 8 },
+};
+
+function Eyes({ kind }) {
+  if (kind === "closed") {
+    return (
+      <>
+        <path d="M75 106 Q82 97 89 106" stroke={INK} strokeWidth="4" fill="none" strokeLinecap="round" />
+        <path d="M111 106 Q118 97 125 106" stroke={INK} strokeWidth="4" fill="none" strokeLinecap="round" />
+      </>
+    );
+  }
+  const r = kind === "wide" ? { rx: 7.5, ry: 10 } : { rx: 6, ry: 8 };
+  const dy = kind === "up" ? -2.5 : 0;
+  return (
+    <>
+      <ellipse cx="82" cy={104 + dy} {...r} fill={INK} />
+      <circle cx="84" cy={101 + dy} r="2" fill="#fff" />
+      <ellipse cx="118" cy={104 + dy} {...r} fill={INK} />
+      <circle cx="120" cy={101 + dy} r="2" fill="#fff" />
+    </>
+  );
+}
+
+function Mascot({ persona = null, size = 160, bg = true, delay = 0, float = true, face = "idle" }) {
   const P = persona ? PERSONAS[persona] : null;
   const gear = persona ? GEAR[persona] : null;
+  const F = FACE[face] || FACE.idle;
   return (
     <svg viewBox="0 0 200 200" width={size} height={size} className="overflow-visible" role="img" aria-label={P ? `去趣・${P.name}` : "去趣"}>
       {bg && <circle cx="100" cy="110" r="86" fill={P ? P.soft : "#FFE0B8"} />}
@@ -1269,17 +1344,21 @@ function Mascot({ persona = null, size = 160, bg = true, delay = 0, float = true
         <circle cx="128" cy="172" r="8" fill={INK} />
         <circle cx="128" cy="172" r="3" fill={PAGE} />
         <rect x="78" y="42" width="44" height="30" rx="11" fill="none" stroke={INK} strokeWidth="6" />
-        <ellipse cx="42" cy="130" rx="10" ry="15" fill={BODY} stroke={INK} strokeWidth="4" />
-        <ellipse cx="158" cy="130" rx="10" ry="15" fill={BODY} stroke={INK} strokeWidth="4" />
+        {/* 用 SVG 自己的 rotate(角度 支點x 支點y)，支點明確，手不會飛出去 */}
+        <g transform={`rotate(${F.arm} 42 120)`}>
+          <ellipse cx="42" cy="130" rx="10" ry="15" fill={BODY} stroke={INK} strokeWidth="4" />
+        </g>
+        <g transform={`rotate(${-F.arm} 158 120)`}>
+          <ellipse cx="158" cy="130" rx="10" ry="15" fill={BODY} stroke={INK} strokeWidth="4" />
+        </g>
         <rect x="44" y="62" width="112" height="106" rx="44" fill={BODY} stroke={INK} strokeWidth="5" />
         <path d="M64 152 Q100 164 136 152" stroke="#F29A2E" strokeWidth="4" fill="none" strokeLinecap="round" opacity=".7" />
-        <ellipse cx="82" cy="104" rx="6" ry="8" fill={INK} />
-        <circle cx="84" cy="101" r="2" fill="#fff" />
-        <ellipse cx="118" cy="104" rx="6" ry="8" fill={INK} />
-        <circle cx="120" cy="101" r="2" fill="#fff" />
+        <Eyes kind={F.eye} />
         <ellipse cx="68" cy="120" rx="8" ry="5" fill="#FF7A6B" opacity=".55" />
         <ellipse cx="132" cy="120" rx="8" ry="5" fill="#FF7A6B" opacity=".55" />
-        <path d="M92 118 Q100 126 108 118" stroke={INK} strokeWidth="4" fill="none" strokeLinecap="round" />
+        {F.mouth === "round"
+          ? <ellipse cx="100" cy="123" rx="5.5" ry="7" fill={INK} />
+          : <path d={F.mouth} stroke={INK} strokeWidth="4" fill="none" strokeLinecap="round" />}
         <AnimatePresence>{gear?.front && <GearLayer key={`f-${persona}`} content={gear.front} delay={delay} />}</AnimatePresence>
       </motion.g>
     </svg>
@@ -1929,9 +2008,53 @@ function StationTransition({ node, roundNo, total, last, onMid, onDone }) {
   );
 }
 
-function GameMap({ nodeIdx, players, banner }) {
+/* 收起來的地圖：一條約 56px 的進度條。答題時地圖沒有資訊價值，
+   但整張攤開會把對話推到摺線以下，手機上會直接流失人。 */
+function MapStrip({ nodeIdx, players, onOpen }) {
+  const here = MAP_NODES[Math.min(nodeIdx, MAP_NODES.length - 1)];
+  return (
+    <button
+      type="button"
+      onClick={() => { sfx("tap"); onOpen(); }}
+      aria-label="展開大地圖"
+      className="flex w-full items-center gap-2 rounded-2xl border-[3px] border-[#1F2350] bg-white px-3 py-2 text-left shadow-[3px_3px_0_#1F2350]"
+    >
+      <span className="text-xl">{here.emoji}</span>
+      <span className="min-w-0 flex-1 leading-tight">
+        <span className="block truncate text-[13px] font-black">{here.name}</span>
+        <span className="tm-num block text-[10px] font-bold opacity-50">
+          探索進度 {Math.min(nodeIdx, MAP_NODES.length - 1)}／{MAP_NODES.length - 1}
+        </span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1">
+        {MAP_NODES.map((n, i) => (
+          <span
+            key={n.key}
+            className={`rounded-full ${i === nodeIdx ? "h-2.5 w-2.5 bg-[#FF6B35]" : i < nodeIdx ? "h-1.5 w-1.5 bg-[#1F2350]/45" : "h-1.5 w-1.5 bg-[#1F2350]/15"}`}
+          />
+        ))}
+      </span>
+      <span className="ml-1 flex shrink-0 -space-x-2">
+        {players.slice(0, 4).map((pl) => <Avatar key={pl.id} p={pl} size={20} />)}
+      </span>
+      <span className="shrink-0 text-[10px] font-black opacity-40">地圖 ▾</span>
+    </button>
+  );
+}
+
+function GameMap({ nodeIdx, players, banner, onClose }) {
   return (
     <Card className="relative overflow-hidden p-0">
+      {onClose && (
+        <button
+          type="button"
+          onClick={() => { sfx("tap"); onClose(); }}
+          aria-label="收起地圖"
+          className="absolute right-2 top-2 z-20 rounded-full border-2 border-[#1F2350] bg-white/90 px-2 py-0.5 text-[10px] font-black"
+        >
+          收起 ▴
+        </button>
+      )}
       <div
         className="relative h-52"
         style={{
@@ -2222,12 +2345,17 @@ function HintModal({ roundIdx, results, hint, onClose }) {
 }
 
 /* ---------- 回合答題 ---------- */
-function RoundCard({ roundIdx, players, profile, onSubmit }) {
+/* 對話版回合：趣趣說情境 → 選項像選單一樣選 → 選了才展開完整描述。
+   原本的旁白卡在 ROUNDS.scene 還留著，要退回去只要把 round.line 換成 round.scene、
+   並把這支元件換回 git 裡的舊版即可。 */
+function RoundCard({ roundIdx, players, profile, onSubmit, ready = true }) {
   const round = ROUNDS[roundIdx];
   const mocks = useMemo(() => players.filter((p) => !p.isUser), [players]);
   const [sel, setSel] = useState(null);
   const [custom, setCustom] = useState("");
   const [answered, setAnswered] = useState([]);
+  const [typed, setTyped] = useState(false);
+  const [bubble, setBubble] = useState(null); // 隊友的碎念
   const inputRef = useRef(null);
 
   // 隊友陸續作答（盲選：只看得到「已作答」）
@@ -2236,8 +2364,22 @@ function RoundCard({ roundIdx, players, profile, onSubmit }) {
     return () => timers.forEach(clearTimeout);
   }, [mocks]);
 
+  // 趣趣講完之後，有台詞的隊友會冒一句出來。台詞直接用 MOCK_POOL 既有的 dLines。
+  useEffect(() => {
+    if (!typed) return undefined;
+    const speakers = mocks.filter((m) => m.dLines?.[roundIdx]);
+    if (!speakers.length) return undefined;
+    const timers = [];
+    speakers.forEach((m, i) => {
+      timers.push(setTimeout(() => setBubble({ by: m, text: m.dLines[roundIdx] }), 1400 + i * 3600));
+      timers.push(setTimeout(() => setBubble(null), 1400 + i * 3600 + 3000));
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [typed, mocks, roundIdx]);
+
   const valid = sel === "D" ? custom.trim().length > 0 : Boolean(sel);
   const netWarn = profile.network !== "esim" && round.options[sel]?.needNet;
+  const picked = sel && sel !== "D" ? round.options[sel] : null;
 
   const submit = () => {
     if (!valid) return;
@@ -2265,82 +2407,151 @@ function RoundCard({ roundIdx, players, profile, onSubmit }) {
                 )}
               </div>
               <span className="max-w-[60px] truncate text-[10px] font-bold">{p.isUser ? "你" : p.name}</span>
-              <span className={`text-[9px] font-bold ${done ? "text-[#2F9E62]" : "opacity-50"}`}>{done ? "已作答" : "思考中"}</span>
             </div>
           );
         })}
       </div>
 
-      <Card className="overflow-hidden">
-        <div className="flex items-center gap-2 border-b-[3px] border-[#1F2350] bg-[#FFF3A6] px-4 py-2 text-xs font-bold">
-          <span>第 {roundIdx + 1} 站</span>
-          <span>{round.clock}</span>
-          <span className="ml-auto">🌡️ {MAP_NODES[round.node].temp}</span>
-        </div>
-        <div className="p-4">
-          <h2 className="tm-display text-[24px] leading-snug">{round.title}</h2>
-          <div className="text-sm font-bold opacity-60">{round.subtitle}</div>
-          <p className="mt-2 text-[15px] leading-relaxed">{round.scene}</p>
-        </div>
-      </Card>
+      {/* ---- 場景條：站別與時間 ---- */}
+      <div className="flex items-center gap-2 rounded-2xl border-[3px] border-[#1F2350] bg-[#FFF3A6] px-3 py-1.5 text-xs font-bold shadow-[3px_3px_0_#1F2350]">
+        <span>第 {roundIdx + 1} 站</span>
+        <span>{round.clock}</span>
+        <span className="ml-auto">{MAP_NODES[round.node].temp}</span>
+      </div>
 
-      <div className="space-y-2.5">
-        {["A", "B", "C"].map((k, i) => {
-          const opt = round.options[k];
-          const active = sel === k;
-          return (
-            <motion.div key={k} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.08 + i * 0.06 }}>
-              <motion.button
-                type="button"
-                onClick={() => { sfx("select"); setSel(k); }}
-                whileTap={{ scale: 0.98 }}
-                animate={{ y: active ? -2 : 0 }}
-                aria-pressed={active}
-                className={`flex w-full items-start gap-3 rounded-2xl border-[3px] border-[#1F2350] p-3 text-left transition-[background-color,box-shadow] duration-150 ${active ? "bg-[#FFC93C] shadow-[4px_4px_0_#1F2350]" : "bg-white shadow-[2px_2px_0_#1F2350]"}`}
-              >
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-[3px] border-[#1F2350] text-lg font-black text-white" style={{ background: CHOICE_COLOR[k] }}>{k}</span>
-                <span className="min-w-0 flex-1">
-                  {/* 刻意不顯示 opt.tag（人格標籤）：玩家看得到就會為了湊人格而失真作答 */}
-                  {opt.price && <span className="mb-1 inline-block rounded-md bg-[#FF6B35] px-1.5 py-0.5 text-[10.5px] font-bold text-white">{money(opt.price)}／人</span>}
-                  <span className="block text-[15px] leading-snug">{opt.text}</span>
-                </span>
-                {active && (
-                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} className="grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 border-[#1F2350] bg-white">
-                    <Check size={14} strokeWidth={3} />
-                  </motion.span>
-                )}
-              </motion.button>
+      {/* ---- 趣趣立繪 + 隊友碎念 ---- */}
+      <div className="relative -my-2 flex justify-center">
+        <motion.div key={roundIdx} initial={{ scale: 0.7, y: 20, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} transition={{ type: "spring", stiffness: 220, damping: 18 }}>
+          <Mascot size={118} bg={false} face={typed ? (picked ? "happy" : round.face) : "talk"} />
+        </motion.div>
+        <AnimatePresence>
+          {bubble && (
+            <motion.div
+              key={bubble.by.id + bubble.text}
+              initial={{ opacity: 0, y: 12, scale: 0.85 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ type: "spring", stiffness: 320, damping: 22 }}
+              className="absolute right-0 top-2 flex max-w-[58%] items-center gap-1.5 rounded-2xl rounded-br-sm border-[3px] border-[#1F2350] bg-white px-2.5 py-1.5 shadow-[3px_3px_0_#1F2350]"
+            >
+              <Avatar p={bubble.by} size={22} />
+              <span className="text-[11px] font-bold leading-snug">{bubble.text}</span>
             </motion.div>
-          );
-        })}
+          )}
+        </AnimatePresence>
+      </div>
 
-        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.26 }}>
-          <div
-            onClick={() => { if (sel !== "D") sfx("select"); setSel("D"); inputRef.current?.focus(); }}
-            className={`rounded-2xl border-[3px] border-[#1F2350] p-3 transition-[background-color,box-shadow] duration-150 ${sel === "D" ? "border-solid bg-[#ECE5FF] shadow-[4px_4px_0_#1F2350]" : "border-dashed bg-white/70"}`}
+      {/* ---- 對話框：點一下跳過逐字 ---- */}
+      <button
+        type="button"
+        onClick={() => { if (ready && !typed) { typedOnce.add(`r${roundIdx}`); setTyped(true); } }}
+        className="relative block w-full rounded-3xl border-[3px] border-[#1F2350] bg-white p-4 text-left shadow-[5px_5px_0_#1F2350]"
+      >
+        <span className="absolute -top-3 left-4 rounded-lg border-[3px] border-[#1F2350] bg-[#FF6B35] px-2 py-0.5 text-xs font-black text-white">趣趣</span>
+        <p className="mt-1 text-[16px] leading-relaxed">
+          <Typewriter key={`r${roundIdx}`} id={`r${roundIdx}`} text={round.line} start={ready} onDone={() => setTyped(true)} />
+        </p>
+        {ready && !typed && <span className="mt-1 block text-right text-[10px] font-bold opacity-40">點一下全部顯示</span>}
+        {typed && (
+          <motion.span
+            className="absolute bottom-2 right-4 text-[#FF6B35]"
+            animate={{ y: [0, 4, 0] }}
+            transition={{ repeat: Infinity, duration: 1.1 }}
           >
-            <div className="flex items-start gap-3">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-[3px] border-[#1F2350] text-lg font-black text-white" style={{ background: CHOICE_COLOR.D }}>D</span>
-              <div className="min-w-0 flex-1">
-                <span className="inline-block rounded-md bg-[#7C5CE0] px-1.5 py-0.5 text-[10.5px] font-bold text-white">自訂輸入：TripMate 會讀你的關鍵字</span>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <input
-                    ref={inputRef}
-                    value={custom}
-                    maxLength={20}
-                    onFocus={() => setSel("D")}
-                    onChange={(e) => setCustom(e.target.value)}
-                    placeholder={round.placeholder}
-                    aria-label="自訂選項，限 20 字"
-                    className="w-full min-w-0 rounded-lg border-2 border-[#1F2350] bg-white px-2.5 py-1.5 text-base outline-none focus:ring-4 focus:ring-[#A98BFF]/50"
-                  />
-                  <span className="tm-num shrink-0 text-xs font-bold opacity-60">{Array.from(custom).length}/20</span>
-                </div>
+            ▼
+          </motion.span>
+        )}
+      </button>
+
+      {/* ---- 選項：短標，選了才展開完整描述 ---- */}
+      <AnimatePresence>
+        {typed && (
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.28 }}
+            className="space-y-2"
+          >
+            {["A", "B", "C"].map((k, i) => {
+              const opt = round.options[k];
+              const active = sel === k;
+              return (
+                <motion.button
+                  key={k}
+                  type="button"
+                  onClick={() => { sfx("select"); setSel(k); }}
+                  whileTap={{ scale: 0.98 }}
+                  aria-pressed={active}
+                  initial={{ opacity: 0, x: -16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.06 + i * 0.06 }}
+                  className={`flex w-full items-center gap-2.5 rounded-2xl border-[3px] border-[#1F2350] px-3 py-2.5 text-left transition-[background-color,box-shadow] duration-150 ${active ? "bg-[#FFC93C] shadow-[4px_4px_0_#1F2350]" : "bg-white shadow-[2px_2px_0_#1F2350]"}`}
+                >
+                  <span className="text-base font-black" style={{ color: active ? INK : CHOICE_COLOR[k] }}>▸</span>
+                  <span className="flex-1 text-[15px] font-bold leading-snug">{opt.short}</span>
+                  {opt.price && <span className="tm-num shrink-0 rounded-md bg-[#FF6B35] px-1.5 py-0.5 text-[10.5px] font-bold text-white">{money(opt.price)}</span>}
+                  {active && <Check size={16} strokeWidth={3.5} className="shrink-0" />}
+                </motion.button>
+              );
+            })}
+
+            <motion.button
+              type="button"
+              onClick={() => { if (sel !== "D") sfx("select"); setSel("D"); setTimeout(() => inputRef.current?.focus(), 60); }}
+              initial={{ opacity: 0, x: -16 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.24 }}
+              className={`flex w-full items-center gap-2.5 rounded-2xl border-[3px] px-3 py-2.5 text-left ${sel === "D" ? "border-solid border-[#1F2350] bg-[#ECE5FF] shadow-[4px_4px_0_#1F2350]" : "border-dashed border-[#1F2350] bg-white/70"}`}
+            >
+              <span className="text-base font-black" style={{ color: sel === "D" ? INK : CHOICE_COLOR.D }}>▸</span>
+              <span className="flex-1 text-[15px] font-bold leading-snug">自己說一句（TripMate 會讀）</span>
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ---- 選中之後：完整描述 / 自訂輸入 ---- */}
+      <AnimatePresence mode="wait">
+        {picked && (
+          <motion.div
+            key={sel}
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="rounded-2xl border-[3px] border-dashed border-[#1F2350] bg-[#FFF8EE] p-3">
+              <div className="mb-1 flex items-center gap-1.5">
+                <Avatar p={players.find((p) => p.isUser)} size={20} />
+                <span className="text-[11px] font-black opacity-60">你說</span>
+              </div>
+              <p className="text-[15px] leading-relaxed">{picked.text}</p>
+            </div>
+          </motion.div>
+        )}
+        {sel === "D" && (
+          <motion.div key="custom" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+            <div className="rounded-2xl border-[3px] border-[#1F2350] bg-[#ECE5FF] p-3">
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <Avatar p={players.find((p) => p.isUser)} size={20} />
+                <span className="text-[11px] font-black opacity-60">你說</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={inputRef}
+                  value={custom}
+                  maxLength={20}
+                  onChange={(e) => setCustom(e.target.value)}
+                  placeholder={round.placeholder}
+                  aria-label="自訂選項，限 20 字"
+                  className="w-full min-w-0 rounded-lg border-2 border-[#1F2350] bg-white px-2.5 py-1.5 text-base outline-none focus:ring-4 focus:ring-[#A98BFF]/50"
+                />
+                <span className="tm-num shrink-0 text-xs font-bold opacity-60">{Array.from(custom).length}/20</span>
               </div>
             </div>
-          </div>
-        </motion.div>
-      </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {netWarn && (
@@ -2358,7 +2569,7 @@ function RoundCard({ roundIdx, players, profile, onSubmit }) {
         style={{ background: `linear-gradient(to top, ${PAGE} 72%, ${PAGE}00)`, paddingBottom: "calc(env(safe-area-inset-bottom) + 14px)" }}
       >
         <Btn className="w-full" disabled={!valid} onClick={submit}>
-          {valid ? "送出答案，看看隊友怎麼選" : sel === "D" ? "先輸入你的自訂答案" : "選一個答案"}
+          {valid ? "就這麼辦，看隊友怎麼選" : sel === "D" ? "先說一句你的版本" : "選一個答案"}
         </Btn>
       </div>
     </div>
@@ -5056,6 +5267,7 @@ export default function App() {
   const [transition, setTransition] = useState(null);
   const [opening, setOpening] = useState(null);
   const [banner, setBanner] = useState(null);
+  const [mapOpen, setMapOpen] = useState(false);
   const [sfxOn, setSfxOn] = useState(true);
   const [bgmOn, setBgmOn] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
@@ -5143,6 +5355,7 @@ export default function App() {
       last,
       onMid: () => {
         setNodeIdx(nextNode);
+        setMapOpen(false);
         setBanner(`📍 已抵達：${MAP_NODES[nextNode].name}，當前氣溫 ${MAP_NODES[nextNode].temp}`);
         if (!last) setRoundIdx((i) => i + 1);
       },
@@ -5163,6 +5376,7 @@ export default function App() {
     setTransition(null);
     setOpening(null);
     setLockVote(null);
+    setMapOpen(false);
     setBoard([]);
     setFeed([]);
     setLocked(null);
@@ -5418,11 +5632,21 @@ export default function App() {
           {phase === "SETUP" && <SetupScreen onStart={start} toast={toast} />}
 
           {phase === "GAME" && session && (
-            <div className="space-y-4 pb-4">
-              <GameMap nodeIdx={nodeIdx} players={session.players} banner={banner} />
+            <div className="space-y-3 pb-4">
+              <AnimatePresence mode="wait" initial={false}>
+                {mapOpen ? (
+                  <motion.div key="map" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                    <GameMap nodeIdx={nodeIdx} players={session.players} banner={banner} onClose={() => setMapOpen(false)} />
+                  </motion.div>
+                ) : (
+                  <motion.div key="strip" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                    <MapStrip nodeIdx={nodeIdx} players={session.players} onOpen={() => setMapOpen(true)} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <AnimatePresence mode="wait">
                 <motion.div key={roundIdx} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -18 }} transition={{ duration: 0.25 }}>
-                  <RoundCard roundIdx={roundIdx} players={session.players} profile={session} onSubmit={handleSubmit} />
+                  <RoundCard roundIdx={roundIdx} players={session.players} profile={session} onSubmit={handleSubmit} ready={!opening && !transition} />
                 </motion.div>
               </AnimatePresence>
             </div>
