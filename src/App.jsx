@@ -4,14 +4,14 @@
  * 單檔 React SPA：Tailwind CSS + Framer Motion + lucide-react
  *
  * 流程：SETUP（人格快測 → 預算／網路錨定 → 隊伍預備）
- *      → GAME（Gather Town 風大地圖 + 4 回合答題 + 大提示）
+ *      → GAME（視覺小說式 4 站答題：場景背景 + 人格立繪 + 對話框，揭曉時角色演招牌動作）
  *      → SUMMARY（人格結算 + 雙欄常駐 eSIM 導購）
  *
  * 多人連線、AI TripMate、AI 排程皆為前端 Mock，集中在「3. Mock 引擎」區塊。
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { motion, AnimatePresence, MotionConfig, animate, useInView, useMotionValue, useTransform, Reorder, useDragControls } from "framer-motion";
+import { motion, AnimatePresence, MotionConfig, animate, useInView, useMotionValue, useTransform, Reorder, useDragControls, useReducedMotion } from "framer-motion";
 import {
   Wifi, WifiOff, Users, Copy, Check, X, Sparkles, Radio, RotateCcw, Share2,
   ChevronLeft, Plus, Minus, Signal, Loader, MapPin, Wallet,
@@ -214,6 +214,15 @@ const AudioEngine = (() => {
       tone(b, { f: 311, type: "square", dur: 0.16, vol: 0.085, at: 0.13 });
       tone(b, { f: 233, type: "square", dur: 0.3, vol: 0.08, at: 0.27 });
       tone(b, { f: 90, to: 55, type: "sine", dur: 0.5, vol: 0.12, at: 0.3 });
+    },
+    // 角色動作：合拍時一串往上的和弦
+    cheer: (b) => {
+      [659.25, 783.99, 1046.5, 1318.5].forEach((f, i) => tone(b, { f, type: "triangle", dur: 0.18, vol: 0.12, at: i * 0.06 }));
+    },
+    // 角色動作：衝突時「咚」一聲
+    bonk: (b) => {
+      tone(b, { f: 220, to: 70, type: "square", dur: 0.22, vol: 0.15 });
+      noise(b, { dur: 0.15, vol: 0.12, from: 1400, to: 300 });
     },
     // 打字：非常輕的一聲，連續播也不刺耳
     blip: (b) => tone(b, { f: 1150, to: 1000, type: "square", dur: 0.022, vol: 0.022 }),
@@ -482,7 +491,7 @@ const PERSONAS = {
     title: "分秒必爭的晨型衝刺兵",
     trait: "Excel 精準到分鐘、早起吃早餐、跑滿所有景點。",
     quote: "離下一班車還有 4 分鐘，大家加快！",
-    gear: ["電子哨子", "碼錶運動手錶"],
+    gear: ["運動頭帶", "碼錶運動手錶"],
     roast: "{name}的 Excel 已經排到回程登機前 3 分鐘，請全隊配合演出。",
   },
   capybara: {
@@ -490,7 +499,7 @@ const PERSONAS = {
     title: "睡飽才有靈魂的鬆弛大師",
     trait: "佛系鬆弛感、睡到自然醒，是全隊情緒最穩定的安全氣囊。",
     quote: "都可以啊，你們決定就好～",
-    gear: ["遮陽墨鏡", "充氣頸枕"],
+    gear: ["充氣頸枕", "冰咖啡"],
     roast: "{name}是全隊的情緒安全氣囊，吵架時請直接把他推到中間。",
   },
   camera: {
@@ -498,7 +507,7 @@ const PERSONAS = {
     title: "隨時開機的行走攝影棚",
     trait: "行程可以少走，但出片率不能低，專攻 IG 爆紅機位與網美光影。",
     quote: "先別動！這道菜／這個景讓我拍兩張！",
-    gear: ["拍立得相機", "補光燈夾"],
+    gear: ["拍立得相機", "頭頂墨鏡"],
     roast: "{name}的相簿會比行程表還長，每一站請預留 5 分鐘補光時間。",
   },
   shopper: {
@@ -506,7 +515,7 @@ const PERSONAS = {
     title: "行李箱留半箱的掃貨獵人",
     trait: "行李箱留半箱出發、退稅滿額達人，最容易引發分流的關鍵人物。",
     quote: "這台灣買不到！退稅算下來等於打六折！",
-    gear: ["滿載免稅購物袋", "行李吊牌"],
+    gear: ["滿載免稅購物袋", "保暖毛帽"],
     roast: "{name}出發時行李箱是空的，回程可能要幫他加購一件行李。",
   },
   accountant: {
@@ -522,7 +531,7 @@ const PERSONAS = {
     title: "轉個彎就有故事的巷弄偵探",
     trait: "City Walk 流浪者，熱愛下町巷弄、美術館與隱密小酒館。",
     quote: "前面巷子很有味道，我們走過去看看！",
-    gear: ["羊皮旅行日誌", "復古雙筒望遠鏡"],
+    gear: ["私房地圖手冊", "漁夫帽"],
     roast: "{name}說「轉個彎就到」的時候，請先確認大家手機還有網路。",
   },
   taxi: {
@@ -530,7 +539,7 @@ const PERSONAS = {
     title: "能坐絕不站的移動貴族",
     trait: "能坐絕不站，走路超過 12 分鐘立刻叫 Uber 的體力儲值型。",
     quote: "走路要 15 分鐘？叫車平攤一人幾十塊，上車！",
-    gear: ["懸浮計程車車頂燈", "叫車手機"],
+    gear: ["懸浮計程車車頂燈", "VIP 徽章"],
     roast: "{name}的每日步數目標是 3,000 步，其中 2,000 步是走去上車。",
   },
   nanny: {
@@ -538,7 +547,7 @@ const PERSONAS = {
     title: "四次元百寶袋的全隊靠山",
     trait: "四次元百寶袋（藥品、行動電源、備份護照），隨時照看全場。",
     quote: "有人口渴嗎？有人需要行動電源嗎？",
-    gear: ["救急醫療包", "充飽電的巨型背囊"],
+    gear: ["救急醫療包", "和平徽章"],
     roast: "{name}的背包裡裝著全隊的備份人生，請不要讓他一個人背。",
   },
 };
@@ -627,7 +636,7 @@ const MAP_NODES = [
 
 const ROUNDS = [
   {
-    id: 1, node: 0, title: "晨間集合", subtitle: "大阪冬晨的起床考驗", clock: "07:00 清晨",
+    id: 1, node: 0, bg: "room", title: "晨間集合", subtitle: "大阪冬晨的起床考驗", clock: "07:00 清晨",
     scene: "2 月初的大阪清晨只有 5 度，窗外冷風颼颼，但今天原定要一早衝去木津卸賣市場吃排隊海鮮丼與白草莓⋯⋯",
     line: "早安⋯⋯窗外只有 5 度耶。今天本來要一早衝木津市場，吃排隊海鮮丼跟白草莓的，你還起得來嗎？", face: "think",
     placeholder: "輸入你的真實應對⋯⋯",
@@ -639,7 +648,7 @@ const ROUNDS = [
     },
   },
   {
-    id: 2, node: 1, title: "USJ 的分歧考驗", subtitle: "整理券只剩下午極少時段", clock: "10:30 上午",
+    id: 2, node: 1, bg: "park", title: "USJ 的分歧考驗", subtitle: "整理券只剩下午極少時段", clock: "10:30 上午",
     scene: "全隊抵達 USJ，入園才發現「超級任天堂世界」整理券只剩下午極少時段，且園區人潮滿患——所有人同時掏出手機⋯⋯",
     line: "糟了！超級任天堂世界的整理券只剩下午幾個時段，園區又爆滿⋯⋯大家都掏出手機了，你要怎麼辦？", face: "surprise",
     placeholder: "輸入你的遊園大招⋯⋯",
@@ -651,7 +660,7 @@ const ROUNDS = [
     },
   },
   {
-    id: 3, node: 2, title: "道頓堀晚餐攻防", subtitle: "預算與食慾的正面對決", clock: "18:00 傍晚",
+    id: 3, node: 2, bg: "canal", title: "道頓堀晚餐攻防", subtitle: "預算與食慾的正面對決", clock: "18:00 傍晚",
     scene: "細雨中的道頓堀，霓虹全開、香味四溢。名店門口排著長龍，隔壁巷子也飄出醬香，大家的肚子同時叫了⋯⋯",
     line: "聞到了嗎？名店門口排了長長一條，可是隔壁巷子也飄出醬香⋯⋯大家肚子同時叫了，今晚吃哪邊？", face: "happy",
     placeholder: "輸入你的晚餐方案⋯⋯",
@@ -663,7 +672,7 @@ const ROUNDS = [
     },
   },
   {
-    id: 4, node: 3, title: "心齋橋分流行動", subtitle: "20:30 打烊前的最後衝刺", clock: "18:30 夜晚",
+    id: 4, node: 3, bg: "arcade", title: "心齋橋分流行動", subtitle: "20:30 打烊前的最後衝刺", clock: "18:30 夜晚",
     scene: "夜幕降臨心齋橋筋商店街，藥妝店、Bic Camera 與古著店分散在不同街區，而店鋪即將在 20:30 打烊⋯⋯",
     line: "藥妝店、Bic Camera、古著店散在不同街區，而且 20:30 就打烊⋯⋯只剩兩小時，你想怎麼分？", face: "worry",
     placeholder: "輸入你的最後衝刺方式⋯⋯",
@@ -682,6 +691,51 @@ const MOCK_POOL = [
   { id: "m3", name: "阿強", color: "#2F9E62", type: "capybara", alt: "taxi", dLines: { 0: "躺著叫外送到飯店", 2: "直接叫車回飯店睡" } },
   { id: "m4", name: "小芸", color: "#7C5CE0", type: "camera", alt: "explorer", dLines: { 2: "去喫茶店拍網美布丁" } },
   { id: "m5", name: "阿凱", color: "#C98A00", type: "accountant", alt: "taxi", dLines: { 0: "先查市場有沒有折價券", 1: "比價完再決定買哪個" } },
+];
+
+
+/* 視覺小說用的隊友台詞：每站依人格各一句，舞台上輪流由 1～2 位隊友講 */
+const CHATTER = [
+  {
+    soldier: "五點半就醒了，鞋都穿好了，誰還在被窩裡？",
+    capybara: "5 度欸⋯⋯被窩就是我的領土，午餐再叫我。",
+    camera: "清晨的光超柔！窗戶結霜先讓我拍一張再說。",
+    shopper: "市場隔壁的乾貨店 8 點開，要不要順路掃一波？",
+    accountant: "早市海鮮丼比晚上便宜三成，早起等於賺到。",
+    explorer: "市場後面那條巷子聽說有間老喫茶，我想去探探。",
+    taxi: "走過去要 15 分鐘？我已經打開叫車 App 了。",
+    nanny: "暖暖包我帶了 8 片，出門前每人先拿兩片！",
+  },
+  {
+    soldier: "整理券倒數 30 秒，手機電量 100%，準備開刷！",
+    capybara: "要排 120 分鐘⋯⋯我可以在長椅上等你們嗎。",
+    camera: "城堡配雪景！這個機位今天不拍會後悔一輩子。",
+    shopper: "限定爆米花桶只剩最後幾批，我先衝商店了！",
+    accountant: "快速通關一張多少？我算一下每分鐘的成本。",
+    explorer: "後街好像有冬季巡演，人比較少，要不要繞過去？",
+    taxi: "園區這麼大⋯⋯有沒有接駁車可以坐？",
+    nanny: "人太多了，走散的話就回這個門口集合喔！",
+  },
+  {
+    soldier: "晚餐 40 分鐘內解決，後面還有三個點要跑。",
+    capybara: "我只想找個有暖氣的位子坐下來⋯⋯",
+    camera: "霓虹燈下拍食物，出片率直接翻倍！",
+    shopper: "吃完剛好去旁邊那間 24 小時折扣店！",
+    accountant: "名店一人兩千五？巷子那間 3.6 分只要六百。",
+    explorer: "巷子裡飄出來的醬香，跟著味道走就對了。",
+    taxi: "下雨了，哪間離車站近我就選哪間。",
+    nanny: "有人胃不舒服嗎？我包包裡有帶胃藥。",
+  },
+  {
+    soldier: "藥妝 30 分、家電 40 分、剩下機動，照表操課！",
+    capybara: "你們去逛，我找個有插座的位子幫自己充電。",
+    camera: "商店街的燈光好有氛圍，給我五分鐘拍夜景。",
+    shopper: "滿五千日圓就能退稅，我的清單已經列好了！",
+    accountant: "退稅記得同一間合併結帳，我幫大家算。",
+    explorer: "堀江那邊的古著巷，我想自己去晃晃。",
+    taxi: "逛完叫一台大車回飯店，戰利品太重了。",
+    nanny: "分頭的話，每 30 分鐘在群組報平安喔！",
+  },
 ];
 
 /* ==================================================================
@@ -842,12 +896,12 @@ function buildHint(roundIdx, results, ctx) {
   const letters = new Set(active.map((r) => r.choice));
   let headline;
   let sub;
+  let worst = null;
 
   if (active.length >= 2 && letters.size === 1 && !letters.has("D")) {
     headline = `全隊都選「${shortOf(roundIdx, active[0])}」`;
     sub = "這種默契可以直接組戰隊出道。";
   } else {
-    let worst = null;
     for (let i = 0; i < active.length; i += 1) {
       for (let j = i + 1; j < active.length; j += 1) {
         const dist = dimDistance(answerWeights(roundIdx, active[i]).d, answerWeights(roundIdx, active[j]).d);
@@ -908,7 +962,22 @@ function buildHint(roundIdx, results, ctx) {
     const fb = budgetFeedback(ctx.budget, results);
     if (fb) rows.push(fb.tone === "ok" ? { tone: "ok", text: fb.text, sub: fb.sub } : { tone: fb.tone, text: fb.text, sub: fb.sub });
   }
-  return { headline, sub, rows };
+
+  // 角色招牌動作：先演「最合拍」的一對（優先挑有你在的），再演「差最多」的一對。
+  // 動作一律由隊友發動、你當對象，這樣你看到的是隊友對你的反應。
+  const front = (a, b) => (a.isUser ? { a: b, b: a } : { a, b });
+  let match = null;
+  for (let i = 0; i < active.length; i += 1) {
+    for (let j = i + 1; j < active.length; j += 1) {
+      if (!sameChoice(active[i], active[j])) continue;
+      const withMe = active[i].player.isUser || active[j].player.isUser;
+      if (!match || (withMe && !match.withMe)) match = { a: active[i].player, b: active[j].player, withMe };
+    }
+  }
+  const duels = [];
+  if (match) duels.push({ mode: "agree", ...front(match.a, match.b) });
+  if (worst && worst.dist > 0) duels.push({ mode: "conflict", ...front(worst.a.player, worst.b.player) });
+  return { headline, sub, rows, duels };
 }
 
 function pairReason(pair, good) {
@@ -1204,16 +1273,43 @@ function Burst({ show }) {
 }
 
 /* ==================================================================
- * 6. 去趣 IP 角色 ＋ 8 款人格配件
+ * 6. 去趣 IP 角色 ＋ 8 款人格造型
+ * ------------------------------------------------------------------
+ * 造型規格來自 chictripPersonas.ts（Gemini 版人格 IP）：
+ *   eyeShape 決定眼型、accessory 決定配件、accentColor 當點綴色，
+ *   每個人格另有一招「共識動作」與一招「衝突動作」。
+ * 人格的判定邏輯（PERSONAS / QUIZ_MAP / ROUNDS 權重）完全沒動，只換長相。
+ * 對照：特種兵→speed_runner、水豚→chill_capybara、打卡機→photo_hunter、
+ *       購物狂→shopping_spree、精算師→cfo_budget、探險家→secret_spotter、
+ *       保母→peace_maker。計程車星人在那份沒有，用同一套規則補上；
+ *       味蕾老饕（foodie_guru）這個專案沒有對應人格，所以先不用。
  * ================================================================== */
+const PERSONA_IP = {
+  soldier:    { roleId: "speed_runner",   eyeShape: "focused", accessory: "headband",         accent: "#FF4D4F", agree: "超響亮擊掌",       conflict: "急速滑步離場" },
+  capybara:   { roleId: "chill_capybara", eyeShape: "sleepy",  accessory: "iced_coffee",      accent: "#87D068", agree: "一起吐放空泡泡",   conflict: "化成一灘黃水" },
+  camera:     { roleId: "photo_hunter",   eyeShape: "sparkle", accessory: "sunglasses_strap", accent: "#FF6B6B", agree: "取景框框比心",     conflict: "鏡頭戳人" },
+  shopper:    { roleId: "shopping_spree", eyeShape: "heart",   accessory: "beanie_bags",      accent: "#EB2F96", agree: "提袋開箱大歡呼",   conflict: "購物紙袋無情衝撞" },
+  accountant: { roleId: "cfo_budget",     eyeShape: "glasses", accessory: "round_glasses",    accent: "#13C2C2", agree: "蓋章批准報銷",     conflict: "甩出厚帳單打臉" },
+  explorer:   { roleId: "secret_spotter", eyeShape: "shades",  accessory: "bucket_hat",       accent: "#722ED1", agree: "悄悄遞出私房地圖", conflict: "拉下鐵捲門自閉" },
+  taxi:       { roleId: "taxi_vip",       eyeShape: "smug",    accessory: "taxi_light",       accent: "#F5A800", agree: "招手全員上車",     conflict: "狂按喇叭催上車", blush: "#FF7A6B" },
+  nanny:      { roleId: "peace_maker",    eyeShape: "smiling", accessory: "peace_pin",        accent: "#FADB14", agree: "強行牽手大合照",   conflict: "原地猛烈揮白旗", blush: "#FF7A6B" },
+};
+
+/* 配件：A 是該人格的點綴色。front 畫在臉的前面，back 畫在身體後面。 */
 const GEAR = {
   soldier: {
-    front: (
+    front: (A) => (
       <g>
-        <path d="M58 76 Q100 64 142 76" stroke="#E8453C" strokeWidth="7" fill="none" strokeLinecap="round" />
-        <path d="M66 128 Q100 158 134 128" stroke="#E8453C" strokeWidth="3.5" fill="none" />
+        {/* 運動頭帶 + 飄帶 */}
+        <path d="M48 88 Q100 66 152 88" stroke={A} strokeWidth="10" fill="none" strokeLinecap="round" />
+        <path d="M54 84 Q100 66 146 84" stroke="#fff" strokeOpacity=".45" strokeWidth="2" fill="none" />
+        <path d="M147 84 L178 68 L170 90 Z" fill={A} stroke={INK} strokeWidth="2.5" strokeLinejoin="round" />
+        <path d="M147 90 L180 100 L166 106 Z" fill={A} stroke={INK} strokeWidth="2.5" strokeLinejoin="round" />
+        {/* 哨子 */}
+        <path d="M66 128 Q100 158 134 128" stroke={A} strokeWidth="3.5" fill="none" />
         <rect x="89" y="142" width="20" height="11" rx="4" fill="#D9DEE5" stroke={INK} strokeWidth="2.5" />
         <circle cx="109" cy="150" r="6.5" fill="#D9DEE5" stroke={INK} strokeWidth="2.5" />
+        {/* 碼錶 */}
         <rect x="31" y="126" width="22" height="11" rx="3" fill={INK} />
         <circle cx="42" cy="131.5" r="8" fill="#7CF29A" stroke={INK} strokeWidth="2.5" />
         <path d="M42 131.5 L42 127 M42 131.5 L45 133.5" stroke={INK} strokeWidth="1.8" strokeLinecap="round" />
@@ -1221,24 +1317,37 @@ const GEAR = {
     ),
   },
   capybara: {
-    front: (
+    front: (A) => (
       <g>
+        {/* 頸枕 */}
         <path d="M60 134 Q100 172 140 134" stroke="#7EC8E3" strokeWidth="15" fill="none" strokeLinecap="round" />
         <path d="M64 136 Q100 166 136 136" stroke="#C4E9F6" strokeWidth="4" fill="none" strokeLinecap="round" strokeDasharray="2 7" />
-        <rect x="67" y="95" width="30" height="19" rx="8" fill={INK} />
-        <rect x="103" y="95" width="30" height="19" rx="8" fill={INK} />
-        <path d="M97 101 L103 101" stroke={INK} strokeWidth="3.5" />
-        <path d="M73 100 L80 100 M109 100 L116 100" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" opacity=".7" />
+        {/* 頭頂一顆柚子 */}
+        <circle cx="100" cy="33" r="10" fill="#FFA62B" stroke={INK} strokeWidth="3" />
+        <path d="M100 23 Q108 13 117 17 Q110 25 100 23 Z" fill={A} stroke={INK} strokeWidth="2" strokeLinejoin="round" />
+        {/* 冰咖啡 */}
+        <path d="M151.8 120 L172.2 120 L170 150 L154 150 Z" fill="#8B5A2B" />
+        <rect x="155" y="123" width="7" height="7" rx="1.5" fill="#fff" fillOpacity=".8" transform="rotate(12 158 126)" />
+        <rect x="163.5" y="130" width="6" height="6" rx="1.5" fill="#fff" fillOpacity=".7" />
+        <path d="M150 106 L174 106 L170 150 L154 150 Z" fill="#EAF7FE" fillOpacity=".35" stroke={INK} strokeWidth="3" strokeLinejoin="round" />
+        <path d="M165 106 L171 84" stroke={A} strokeWidth="4" strokeLinecap="round" />
+        <path d="M146 106 H178" stroke={INK} strokeWidth="5" strokeLinecap="round" />
+        <ellipse cx="155" cy="135" rx="8" ry="9" fill={BODY} stroke={INK} strokeWidth="3.5" />
       </g>
     ),
   },
   camera: {
-    front: (
+    front: (A) => (
       <g>
-        <circle cx="132" cy="44" r="17" fill="#FFF6B0" opacity=".6" />
-        <rect x="120" y="50" width="7" height="12" rx="2" fill={INK} />
-        <circle cx="132" cy="44" r="10" fill="#FFFBE0" stroke={INK} strokeWidth="3" />
-        <circle cx="132" cy="44" r="4" fill="#fff" stroke="#FFC93C" strokeWidth="2" />
+        {/* 推到頭上的墨鏡 */}
+        <g transform="rotate(-6 100 68)">
+          <rect x="68" y="59" width="28" height="15" rx="7" fill={INK} />
+          <rect x="104" y="59" width="28" height="15" rx="7" fill={INK} />
+          <path d="M96 65 L104 65" stroke={INK} strokeWidth="3" />
+          <path d="M73 63 L80 63 M109 63 L116 63" stroke={A} strokeWidth="2.5" strokeLinecap="round" />
+        </g>
+        {/* 相機背帶 + 拍立得 */}
+        <path d="M52 96 Q58 128 76 134 M148 96 Q142 128 124 134" stroke={A} strokeWidth="4" fill="none" strokeLinecap="round" />
         <rect x="70" y="128" width="60" height="42" rx="9" fill="#F7F3EA" stroke={INK} strokeWidth="3" />
         <rect x="75" y="133" width="4" height="12" fill="#FF6B35" />
         <rect x="79" y="133" width="4" height="12" fill="#FFC93C" />
@@ -1248,41 +1357,51 @@ const GEAR = {
         <circle cx="102" cy="150" r="7" fill="#5B7FFF" />
         <circle cx="99" cy="147" r="2.2" fill="#fff" />
         <rect x="116" y="133" width="10" height="7" rx="1.5" fill="#FFE27A" stroke={INK} strokeWidth="1.5" />
+        {/* 閃亮星星 */}
+        <path d="M152 70 l3 8 8 3 -8 3 -3 8 -3 -8 -8 -3 8 -3z" fill={A} stroke={INK} strokeWidth="1.5" strokeLinejoin="round" />
       </g>
     ),
   },
   shopper: {
-    front: (
+    front: (A) => (
       <g>
-        <path d="M80 50 L64 40" stroke={INK} strokeWidth="2" />
-        <g transform="rotate(-18 58 38)">
-          <rect x="44" y="31" width="26" height="15" rx="3" fill="#FFC93C" stroke={INK} strokeWidth="2.5" />
-          <circle cx="66" cy="38.5" r="2" fill={INK} />
-          <text x="55" y="42" fontSize="7" fontWeight="900" textAnchor="middle" fill={INK}>KIX</text>
-        </g>
+        {/* 毛帽（把提把整個罩住） */}
+        <path d="M56 80 Q54 26 100 24 Q146 26 144 80 Z" fill={A} stroke={INK} strokeWidth="4" strokeLinejoin="round" />
+        <path d="M80 34 Q77 56 80 72 M100 28 V72 M120 34 Q123 56 120 72" stroke="#fff" strokeOpacity=".3" strokeWidth="3" fill="none" />
+        <rect x="50" y="68" width="100" height="16" rx="8" fill={A} stroke={INK} strokeWidth="3.5" />
+        <rect x="52" y="70" width="96" height="12" rx="6" fill="#000" fillOpacity=".16" />
+        {[60, 70, 80, 90, 100, 110, 120, 130, 140].map((x) => (
+          <path key={x} d={`M${x} 71 V81`} stroke="#fff" strokeOpacity=".35" strokeWidth="2" />
+        ))}
+        <circle cx="100" cy="20" r="10" fill="#fff" stroke={INK} strokeWidth="3" />
+        {/* 兩手提袋 */}
         <path d="M22 138 Q31 118 40 138" stroke={INK} strokeWidth="3" fill="none" />
-        <path d="M16 138 L46 138 L50 178 L12 178 Z" fill="#FF9EBB" stroke={INK} strokeWidth="3" strokeLinejoin="round" />
+        <path d="M16 138 L46 138 L50 178 L12 178 Z" fill={A} stroke={INK} strokeWidth="3" strokeLinejoin="round" />
         <text x="31" y="160" fontSize="7" fontWeight="900" textAnchor="middle" fill="#fff">TAX</text>
         <text x="31" y="169" fontSize="7" fontWeight="900" textAnchor="middle" fill="#fff">FREE</text>
         <rect x="138" y="150" width="18" height="24" rx="2" fill="#FFC93C" stroke={INK} strokeWidth="2.5" />
         <path d="M160 136 Q169 116 178 136" stroke={INK} strokeWidth="3" fill="none" />
         <path d="M154 136 L184 136 L188 178 L150 178 Z" fill="#6CC08B" stroke={INK} strokeWidth="3" strokeLinejoin="round" />
-        <text x="169" y="163" fontSize="9" fontWeight="900" textAnchor="middle" fill="#fff">免稅</text>
+        <text x="169" y="163" fontSize="9" fontWeight="900" textAnchor="middle" fill="#fff">SALE</text>
       </g>
     ),
   },
   accountant: {
-    front: (
+    front: (A) => (
       <g>
-        <circle cx="82" cy="104" r="12" fill="#ffffff44" stroke={INK} strokeWidth="3" />
-        <circle cx="118" cy="104" r="12" fill="#ffffff44" stroke={INK} strokeWidth="3" />
-        <path d="M94 103 L106 103" stroke={INK} strokeWidth="3" />
+        {/* 圓框眼鏡（點綴色） */}
+        <circle cx="82" cy="104" r="13" fill="#ffffff44" stroke={A} strokeWidth="3.5" />
+        <circle cx="118" cy="104" r="13" fill="#ffffff44" stroke={A} strokeWidth="3.5" />
+        <path d="M95 103 L105 103" stroke={A} strokeWidth="3" />
+        <path d="M69 101 L53 96 M131 101 L147 96" stroke={A} strokeWidth="3" strokeLinecap="round" />
+        {/* 計算機 */}
         <rect x="76" y="128" width="48" height="44" rx="7" fill="#E9D8B4" stroke={INK} strokeWidth="3" />
         <rect x="81" y="133" width="38" height="11" rx="2" fill="#B8D8A8" stroke={INK} strokeWidth="1.5" />
         <text x="116" y="142" fontSize="8" fontWeight="900" textAnchor="end" fill={INK}>405</text>
         {[0, 1, 2].map((r) => [0, 1, 2, 3].map((c) => (
-          <rect key={`${r}-${c}`} x={82 + c * 9.5} y={148 + r * 7.5} width="7" height="5" rx="1.5" fill={c === 3 ? "#FF6B35" : INK} />
+          <rect key={`${r}-${c}`} x={82 + c * 9.5} y={148 + r * 7.5} width="7" height="5" rx="1.5" fill={c === 3 ? A : INK} />
         )))}
+        {/* 折價券 */}
         <g transform="rotate(12 168 118)">
           <rect x="152" y="108" width="34" height="20" rx="3" fill="#FFE27A" stroke={INK} strokeWidth="2.5" />
           <path d="M161 108 L161 128" stroke={INK} strokeWidth="1.5" strokeDasharray="2 2" />
@@ -1293,14 +1412,21 @@ const GEAR = {
     ),
   },
   explorer: {
-    front: (
+    front: (A) => (
       <g>
+        {/* 漁夫帽 */}
+        <path d="M62 76 Q62 30 100 28 Q138 30 138 76 Z" fill={A} stroke={INK} strokeWidth="4" strokeLinejoin="round" />
+        <path d="M63 62 Q100 54 137 62 L138 72 Q100 64 62 72 Z" fill="#000" fillOpacity=".28" />
+        <ellipse cx="100" cy="77" rx="58" ry="10" fill={A} stroke={INK} strokeWidth="4" />
+        <ellipse cx="100" cy="77" rx="49" ry="5" fill="none" stroke="#fff" strokeOpacity=".45" strokeDasharray="4 4" />
+        {/* 望遠鏡 */}
         <path d="M60 124 Q100 146 140 124" stroke="#8B5A2B" strokeWidth="3" fill="none" />
         <rect x="84" y="136" width="14" height="22" rx="5" fill="#4A3B2F" stroke={INK} strokeWidth="2.5" />
         <rect x="102" y="136" width="14" height="22" rx="5" fill="#4A3B2F" stroke={INK} strokeWidth="2.5" />
         <rect x="96" y="142" width="8" height="7" fill="#6B5646" stroke={INK} strokeWidth="2" />
         <ellipse cx="91" cy="158" rx="6" ry="3" fill="#7CC6FE" stroke={INK} strokeWidth="2" />
         <ellipse cx="109" cy="158" rx="6" ry="3" fill="#7CC6FE" stroke={INK} strokeWidth="2" />
+        {/* 私房地圖手冊 */}
         <g transform="rotate(-8 163 132)">
           <rect x="148" y="114" width="30" height="36" rx="3" fill="#A0652E" stroke={INK} strokeWidth="3" />
           <rect x="171" y="114" width="4" height="36" fill="#6B3E1A" />
@@ -1311,13 +1437,17 @@ const GEAR = {
     ),
   },
   taxi: {
-    front: (
+    front: (A) => (
       <g>
         <motion.g animate={{ y: [0, -5, 0] }} transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut" }}>
-          <path d="M60 10 L54 4 M140 10 L146 4 M100 6 L100 0" stroke="#FFC93C" strokeWidth="3" strokeLinecap="round" />
+          <path d="M60 10 L54 4 M140 10 L146 4 M100 6 L100 0" stroke={A} strokeWidth="3" strokeLinecap="round" />
           <path d="M72 12 L128 12 L135 30 L65 30 Z" fill="#FFD21F" stroke={INK} strokeWidth="3" strokeLinejoin="round" />
           <text x="100" y="26" fontSize="12" fontWeight="900" textAnchor="middle" fill={INK} letterSpacing="1">TAXI</text>
         </motion.g>
+        {/* 胸前 VIP 徽章 */}
+        <rect x="108" y="138" width="24" height="13" rx="4" fill={A} stroke={INK} strokeWidth="2.5" />
+        <text x="120" y="148" fontSize="8" fontWeight="900" textAnchor="middle" fill={INK}>VIP</text>
+        {/* 叫車手機 */}
         <g transform="rotate(10 160 128)">
           <rect x="150" y="110" width="20" height="34" rx="4" fill={INK} />
           <rect x="152.5" y="114" width="15" height="24" rx="2" fill="#7FD3FF" />
@@ -1327,7 +1457,7 @@ const GEAR = {
     ),
   },
   nanny: {
-    back: (
+    back: () => (
       <g>
         <rect x="30" y="58" width="140" height="108" rx="34" fill="#4E9F7D" stroke={INK} strokeWidth="4" />
         <rect x="146" y="38" width="16" height="26" rx="3" fill="#fff" stroke={INK} strokeWidth="2.5" />
@@ -1337,10 +1467,17 @@ const GEAR = {
         <rect x="149.5" y="56" width="9" height="5" fill="#7CF29A" />
       </g>
     ),
-    front: (
+    front: (A) => (
       <g>
         <path d="M56 82 L58 152" stroke="#3A7A5F" strokeWidth="6" strokeLinecap="round" />
         <path d="M144 82 L142 152" stroke="#3A7A5F" strokeWidth="6" strokeLinecap="round" />
+        {/* 和平徽章 */}
+        <circle cx="120" cy="146" r="10" fill="#fff" stroke={A} strokeWidth="3.5" />
+        <g stroke={INK} strokeWidth="2" fill="none" strokeLinecap="round">
+          <circle cx="120" cy="146" r="6" />
+          <path d="M120 140 V152 M120 146 L115.8 150.2 M120 146 L124.2 150.2" />
+        </g>
+        {/* 急救包 */}
         <path d="M30 128 Q38 118 46 128" stroke={INK} strokeWidth="3" fill="none" />
         <rect x="20" y="126" width="36" height="28" rx="5" fill="#fff" stroke={INK} strokeWidth="3" />
         <rect x="35" y="130" width="6" height="20" rx="1" fill="#E8453C" />
@@ -1395,36 +1532,211 @@ function Eyes({ kind }) {
   );
 }
 
+/* ---------- 人格版的臉：眼型照 eyeShape，表情疊在上面 ----------
+   表情：idle / talk / happy / mad / shock / worry（think、surprise 會轉成對應的那一個） */
+const MOUTH_RED = "#8A2E22";
+const PERSONA_FACE_ALIAS = { think: "idle", surprise: "shock" };
+const PERSONA_ARM = { idle: 0, talk: -14, happy: -26, shock: -34, mad: 10, worry: 8 };
+
+const heartPath = (cx, cy, s) =>
+  `M${cx} ${cy + 4.5 * s} C${cx - 6 * s} ${cy} ${cx - 6.5 * s} ${cy - 4.5 * s} ${cx - 3.6 * s} ${cy - 6.4 * s} C${cx - 1.7 * s} ${cy - 7.6 * s} ${cx} ${cy - 6.2 * s} ${cx} ${cy - 4.8 * s} C${cx} ${cy - 6.2 * s} ${cx + 1.7 * s} ${cy - 7.6 * s} ${cx + 3.6 * s} ${cy - 6.4 * s} C${cx + 6.5 * s} ${cy - 4.5 * s} ${cx + 6 * s} ${cy} ${cx} ${cy + 4.5 * s} Z`;
+
+function PersonaFace({ eye, face, accent }) {
+  const f = PERSONA_FACE_ALIAS[face] || face || "idle";
+  const line = { stroke: INK, strokeWidth: 4, fill: "none", strokeLinecap: "round" };
+  const shades = eye === "shades";
+
+  let eyes;
+  if (f === "happy" && !shades && eye !== "heart") {
+    eyes = (
+      <>
+        <path d="M74 107 Q82 97 90 107" {...line} />
+        <path d="M110 107 Q118 97 126 107" {...line} />
+      </>
+    );
+  } else if (f === "shock" && !shades) {
+    eyes = (
+      <>
+        <ellipse cx="82" cy="103" rx="9" ry="11" fill="#fff" stroke={INK} strokeWidth="3" />
+        <circle cx="82" cy="104" r="3.5" fill={INK} />
+        <ellipse cx="118" cy="103" rx="9" ry="11" fill="#fff" stroke={INK} strokeWidth="3" />
+        <circle cx="118" cy="104" r="3.5" fill={INK} />
+      </>
+    );
+  } else {
+    switch (eye) {
+      case "sparkle":
+        eyes = [82, 118].map((x) => (
+          <g key={x}>
+            <ellipse cx={x} cy="104" rx="7.5" ry="9.5" fill={INK} />
+            <circle cx={x + 2.5} cy="100" r="3.2" fill="#fff" />
+            <circle cx={x - 2.2} cy="108" r="1.6" fill="#fff" />
+          </g>
+        ));
+        break;
+      case "focused":
+        eyes = [82, 118].map((x) => (
+          <g key={x}>
+            <ellipse cx={x} cy="105" rx="5.5" ry="6.5" fill={INK} />
+            <circle cx={x + 1.8} cy="102.5" r="1.8" fill="#fff" />
+          </g>
+        ));
+        break;
+      case "sleepy":
+        eyes = (
+          <>
+            <path d="M73 104 Q82 111 91 104" {...line} />
+            <path d="M109 104 Q118 111 127 104" {...line} />
+          </>
+        );
+        break;
+      case "glasses":
+        eyes = (
+          <>
+            <circle cx="82" cy="104" r="4.5" fill={INK} />
+            <circle cx="118" cy="104" r="4.5" fill={INK} />
+          </>
+        );
+        break;
+      case "shades":
+        eyes = (
+          <g transform={f === "shock" ? "translate(0 4)" : undefined}>
+            <path d="M64 95 H98 V103 Q98 114 88 114 H74 Q64 114 64 103 Z" fill="#14161F" />
+            <path d="M102 95 H136 V103 Q136 114 126 114 H112 Q102 114 102 103 Z" fill="#14161F" />
+            <path d="M97 97 H103" stroke="#14161F" strokeWidth="3" />
+            <path d="M69 99 H77 M107 99 H115" stroke="#fff" strokeOpacity=".7" strokeWidth="2.5" strokeLinecap="round" />
+          </g>
+        );
+        break;
+      case "heart":
+        eyes = (
+          <>
+            <path d={heartPath(82, 105, f === "happy" ? 1.9 : 1.6)} fill={accent} stroke={INK} strokeWidth="2" />
+            <path d={heartPath(118, 105, f === "happy" ? 1.9 : 1.6)} fill={accent} stroke={INK} strokeWidth="2" />
+          </>
+        );
+        break;
+      case "smug":
+        eyes = [82, 118].map((x) => (
+          <g key={x}>
+            <path d={`M${x - 9} 102 L${x + 9} 102 Q${x + 8} 112 ${x} 112 Q${x - 8} 112 ${x - 9} 102 Z`} fill={INK} />
+            <path d={`M${x - 10} 101 L${x + 10} 100`} {...line} strokeWidth="3.5" />
+          </g>
+        ));
+        break;
+      case "smiling":
+      default:
+        eyes = (
+          <>
+            <path d="M74 107 Q82 98 90 107" {...line} />
+            <path d="M110 107 Q118 98 126 107" {...line} />
+          </>
+        );
+    }
+  }
+
+  // 眉毛：特種兵天生殺氣眉；生氣、擔心另外加
+  let brows = null;
+  if (f === "mad" || (eye === "focused" && f !== "worry" && f !== "happy")) {
+    brows = (
+      <>
+        <path d="M69 88 L93 95" {...line} strokeWidth="4.5" />
+        <path d="M131 88 L107 95" {...line} strokeWidth="4.5" />
+      </>
+    );
+  } else if (f === "worry") {
+    brows = (
+      <>
+        <path d="M71 92 L91 86" {...line} strokeWidth="3.5" />
+        <path d="M129 92 L109 86" {...line} strokeWidth="3.5" />
+      </>
+    );
+  }
+
+  const IDLE_MOUTH = {
+    sparkle: <path d="M89 117 Q100 131 111 117 Z" fill={MOUTH_RED} stroke={INK} strokeWidth="3" strokeLinejoin="round" />,
+    focused: (
+      <g>
+        <rect x="88" y="115" width="24" height="10" rx="3" fill="#fff" stroke={INK} strokeWidth="3" />
+        <path d="M100 115 V125" stroke={INK} strokeWidth="1.8" />
+      </g>
+    ),
+    sleepy: <ellipse cx="100" cy="122" rx="3.5" ry="3" fill={INK} />,
+    glasses: <path d="M93 121 Q100 126 107 121" {...line} strokeWidth="3.5" />,
+    shades: <path d="M91 122 Q102 126 111 117" {...line} strokeWidth="3.5" />,
+    heart: <path d="M89 117 Q100 131 111 117 Z" fill={MOUTH_RED} stroke={INK} strokeWidth="3" strokeLinejoin="round" />,
+    smug: <path d="M91 122 Q101 125 110 118" {...line} strokeWidth="3.5" />,
+    smiling: <path d="M88 116 Q100 130 112 116" {...line} />,
+  };
+  const mouth = {
+    talk: <path d="M90 117 Q100 131 110 117 Z" fill={MOUTH_RED} stroke={INK} strokeWidth="3" strokeLinejoin="round" />,
+    happy: <path d="M86 115 Q100 137 114 115 Z" fill={MOUTH_RED} stroke={INK} strokeWidth="3" strokeLinejoin="round" />,
+    shock: <ellipse cx="100" cy="125" rx="6" ry="8" fill={INK} />,
+    mad: <path d="M89 127 Q100 116 111 127" {...line} />,
+    worry: <path d="M91 124 Q95.5 118 100 124 Q104.5 130 109 124" {...line} strokeWidth="3.5" />,
+  }[f] || IDLE_MOUTH[eye] || IDLE_MOUTH.smiling;
+
+  return (
+    <g>
+      {eyes}
+      {brows}
+      {mouth}
+      {eye === "sleepy" && (f === "idle" || f === "talk") && (
+        <g fill={INK} fillOpacity=".55" fontWeight="900" fontFamily="sans-serif">
+          <text x="146" y="74" fontSize="12">z</text>
+          <text x="155" y="62" fontSize="16">Z</text>
+        </g>
+      )}
+      {f === "mad" && (
+        <g stroke="#E53935" strokeWidth="3.5" fill="none" strokeLinecap="round">
+          <path d="M141 64 Q147 64 147 58 M155 58 Q155 64 161 64 M161 72 Q155 72 155 78 M147 78 Q147 72 141 72" />
+        </g>
+      )}
+      {(f === "shock" || f === "worry") && (
+        <path d="M150 88 C150 95 145 98 145 102 C145 106 148 108 151 108 C154 108 157 106 157 102 C157 98 152 95 150 88 Z" fill="#9EDCFF" stroke={INK} strokeWidth="2" />
+      )}
+    </g>
+  );
+}
+
 function Mascot({ persona = null, size = 160, bg = true, delay = 0, float = true, face = "idle" }) {
   const P = persona ? PERSONAS[persona] : null;
   const gear = persona ? GEAR[persona] : null;
+  const ip = persona ? PERSONA_IP[persona] : null;
   const F = FACE[face] || FACE.idle;
+  const arm = ip ? (PERSONA_ARM[PERSONA_FACE_ALIAS[face] || face] ?? 0) : F.arm;
   return (
     <svg viewBox="0 0 200 200" width={size} height={size} className="overflow-visible" role="img" aria-label={P ? `去趣・${P.name}` : "去趣"}>
       {bg && <circle cx="100" cy="110" r="86" fill={P ? P.soft : "#FFE0B8"} />}
       <motion.g animate={float ? { y: [0, -4, 0] } : undefined} transition={{ repeat: Infinity, duration: 2.6, ease: "easeInOut" }}>
-        <AnimatePresence>{gear?.back && <GearLayer key={`b-${persona}`} content={gear.back} delay={delay} />}</AnimatePresence>
+        <AnimatePresence>{gear?.back && <GearLayer key={`b-${persona}`} content={gear.back(ip.accent)} delay={delay} />}</AnimatePresence>
         <circle cx="72" cy="172" r="8" fill={INK} />
         <circle cx="72" cy="172" r="3" fill={PAGE} />
         <circle cx="128" cy="172" r="8" fill={INK} />
         <circle cx="128" cy="172" r="3" fill={PAGE} />
         <rect x="78" y="42" width="44" height="30" rx="11" fill="none" stroke={INK} strokeWidth="6" />
         {/* 用 SVG 自己的 rotate(角度 支點x 支點y)，支點明確，手不會飛出去 */}
-        <g transform={`rotate(${F.arm} 42 120)`}>
+        <g transform={`rotate(${arm} 42 120)`}>
           <ellipse cx="42" cy="130" rx="10" ry="15" fill={BODY} stroke={INK} strokeWidth="4" />
         </g>
-        <g transform={`rotate(${-F.arm} 158 120)`}>
+        <g transform={`rotate(${-arm} 158 120)`}>
           <ellipse cx="158" cy="130" rx="10" ry="15" fill={BODY} stroke={INK} strokeWidth="4" />
         </g>
         <rect x="44" y="62" width="112" height="106" rx="44" fill={BODY} stroke={INK} strokeWidth="5" />
         <path d="M64 152 Q100 164 136 152" stroke="#F29A2E" strokeWidth="4" fill="none" strokeLinecap="round" opacity=".7" />
-        <Eyes kind={F.eye} />
-        <ellipse cx="68" cy="120" rx="8" ry="5" fill="#FF7A6B" opacity=".55" />
-        <ellipse cx="132" cy="120" rx="8" ry="5" fill="#FF7A6B" opacity=".55" />
-        {F.mouth === "round"
-          ? <ellipse cx="100" cy="123" rx="5.5" ry="7" fill={INK} />
-          : <path d={F.mouth} stroke={INK} strokeWidth="4" fill="none" strokeLinecap="round" />}
-        <AnimatePresence>{gear?.front && <GearLayer key={`f-${persona}`} content={gear.front} delay={delay} />}</AnimatePresence>
+        <ellipse cx="68" cy="120" rx="8" ry="5" fill={ip ? ip.blush || ip.accent : "#FF7A6B"} opacity={ip ? 0.6 : 0.55} />
+        <ellipse cx="132" cy="120" rx="8" ry="5" fill={ip ? ip.blush || ip.accent : "#FF7A6B"} opacity={ip ? 0.6 : 0.55} />
+        {ip ? (
+          <PersonaFace eye={ip.eyeShape} face={face} accent={ip.accent} />
+        ) : (
+          <>
+            <Eyes kind={F.eye} />
+            {F.mouth === "round"
+              ? <ellipse cx="100" cy="123" rx="5.5" ry="7" fill={INK} />
+              : <path d={F.mouth} stroke={INK} strokeWidth="4" fill="none" strokeLinecap="round" />}
+          </>
+        )}
+        <AnimatePresence>{gear?.front && <GearLayer key={`f-${persona}`} content={gear.front(ip.accent)} delay={delay} />}</AnimatePresence>
       </motion.g>
     </svg>
   );
@@ -2069,76 +2381,6 @@ function StationTransition({ node, roundNo, total, last, onMid, onDone }) {
   );
 }
 
-/* 收起來的地圖：一條約 56px 的進度條。答題時地圖沒有資訊價值，
-   但整張攤開會把對話推到摺線以下，手機上會直接流失人。 */
-function MapStrip({ nodeIdx, players, onOpen }) {
-  const here = MAP_NODES[Math.min(nodeIdx, MAP_NODES.length - 1)];
-  return (
-    <button
-      type="button"
-      onClick={() => { sfx("tap"); onOpen(); }}
-      aria-label="展開大地圖"
-      className="flex w-full items-center gap-2 rounded-2xl border-[3px] border-[#1F2350] bg-white px-3 py-2 text-left shadow-[3px_3px_0_#1F2350]"
-    >
-      <span className="text-xl">{here.emoji}</span>
-      <span className="min-w-0 flex-1 leading-tight">
-        <span className="block truncate text-[13px] font-black">{here.name}</span>
-        <span className="tm-num block text-[10px] font-bold opacity-50">
-          探索進度 {Math.min(nodeIdx, MAP_NODES.length - 1)}／{MAP_NODES.length - 1}
-        </span>
-      </span>
-      <span className="flex shrink-0 items-center gap-1">
-        {MAP_NODES.map((n, i) => (
-          <span
-            key={n.key}
-            className={`rounded-full ${i === nodeIdx ? "h-2.5 w-2.5 bg-[#FF6B35]" : i < nodeIdx ? "h-1.5 w-1.5 bg-[#1F2350]/45" : "h-1.5 w-1.5 bg-[#1F2350]/15"}`}
-          />
-        ))}
-      </span>
-      <span className="ml-1 flex shrink-0 -space-x-2">
-        {players.slice(0, 4).map((pl) => <Avatar key={pl.id} p={pl} size={20} />)}
-      </span>
-      <span className="shrink-0 text-[10px] font-black opacity-40">地圖 ▾</span>
-    </button>
-  );
-}
-
-/* 默契條。數字會從上一站的值滑到新的值，讓玩家看到自己剛才那一選的後果。 */
-function VibeBar({ value, prev }) {
-  const has = typeof value === "number";
-  const delta = has && typeof prev === "number" ? value - prev : 0;
-  return (
-    <div className="flex items-center gap-2 rounded-2xl border-[3px] border-[#1F2350] bg-white px-3 py-1.5 shadow-[3px_3px_0_#1F2350]">
-      <span className="shrink-0 text-[11px] font-black">團隊默契</span>
-      <div className="h-2.5 flex-1 overflow-hidden rounded-full border-2 border-[#1F2350] bg-[#FFE8D1]">
-        <motion.div
-          className="h-full"
-          style={{ background: has && value >= 70 ? "#6CC08B" : has && value >= 45 ? "#FFC93C" : "#FF8C6B" }}
-          initial={false}
-          animate={{ width: has ? `${value}%` : "0%" }}
-          transition={{ type: "spring", stiffness: 90, damping: 16 }}
-        />
-      </div>
-      <span className="tm-num w-9 shrink-0 text-right text-sm font-black">
-        {has ? <CountUp key={value} to={value} duration={0.7} /> : "—"}
-      </span>
-      <AnimatePresence>
-        {delta !== 0 && (
-          <motion.span
-            key={`${value}-${delta}`}
-            initial={{ opacity: 0, y: 6, scale: 0.8 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6 }}
-            className={`tm-num shrink-0 text-[11px] font-black ${delta > 0 ? "text-[#1F7A55]" : "text-[#B8440E]"}`}
-          >
-            {delta > 0 ? `▲${delta}` : `▼${-delta}`}
-          </motion.span>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
 function GameMap({ nodeIdx, players, banner, onClose }) {
   return (
     <Card className="relative overflow-hidden p-0">
@@ -2433,8 +2675,10 @@ function NetworkAsk({ days, onPick }) {
 /* ---------- 大提示（4 秒自動關閉） ---------- */
 const HINT_MS = 4000;
 
-function HintModal({ roundIdx, results, hint, onClose }) {
-  const [remain, setRemain] = useState(HINT_MS);
+function HintModal({ roundIdx, results, hint, seed, onClose }) {
+  // 有兩段角色動作時多留一點時間，兩段都看得完
+  const total = HINT_MS + Math.max(0, (hint.duels?.length || 0) - 1) * DUEL_MS;
+  const [remain, setRemain] = useState(total);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
@@ -2442,14 +2686,14 @@ function HintModal({ roundIdx, results, hint, onClose }) {
     sfx("success");
     const started = Date.now();
     const id = setInterval(() => {
-      const left = HINT_MS - (Date.now() - started);
+      const left = total - (Date.now() - started);
       if (left <= 0) {
         clearInterval(id);
         closeRef.current();
       } else setRemain(left);
     }, 80);
     return () => clearInterval(id);
-  }, []);
+  }, [total]);
 
   return (
     <motion.div
@@ -2467,7 +2711,7 @@ function HintModal({ roundIdx, results, hint, onClose }) {
         className="w-full max-w-sm"
         onClick={(e) => e.stopPropagation()}
       >
-        <Card className="relative overflow-hidden p-5">
+        <Card className="relative max-h-[calc(100dvh-32px)] overflow-y-auto p-4 sm:p-5">
           <button type="button" onClick={() => closeRef.current()} aria-label="關閉提示" className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full border-2 border-[#1F2350] bg-white">
             <X size={16} strokeWidth={3} />
           </button>
@@ -2479,6 +2723,8 @@ function HintModal({ roundIdx, results, hint, onClose }) {
               <div className="text-[11px] opacity-60">第 {roundIdx + 1} 站　{ROUNDS[roundIdx].title}</div>
             </div>
           </div>
+
+          {hint.duels?.length > 0 && <DuelReel duels={hint.duels} seed={seed} />}
 
           <motion.h3
             initial={{ scale: 0.6, opacity: 0 }}
@@ -2513,7 +2759,7 @@ function HintModal({ roundIdx, results, hint, onClose }) {
           </div>
 
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#1F2350]/15">
-            <motion.div className="h-full bg-[#FF6B35]" animate={{ width: `${(remain / HINT_MS) * 100}%` }} transition={{ duration: 0.1, ease: "linear" }} />
+            <motion.div className="h-full bg-[#FF6B35]" animate={{ width: `${(remain / total) * 100}%` }} transition={{ duration: 0.1, ease: "linear" }} />
           </div>
           <div className="mt-1 text-center text-[11px] opacity-50">{Math.ceil(remain / 1000)} 秒後自動前往下一站（點畫面可直接關閉）</div>
         </Card>
@@ -2522,133 +2768,1169 @@ function HintModal({ roundIdx, results, hint, onClose }) {
   );
 }
 
-/* ---------- 回合答題 ---------- */
-/* 對話版回合：趣趣說情境 → 選項像選單一樣選 → 選了才展開完整描述。
-   原本的旁白卡在 ROUNDS.scene 還留著，要退回去只要把 round.line 換成 round.scene、
-   並把這支元件換回 git 裡的舊版即可。 */
-function RoundCard({ roundIdx, players, profile, onSubmit, ready = true }) {
+/* ==================================================================
+ * 8.5 視覺小說場景：4 站各一張背景（純 SVG，不載圖檔）
+ * ------------------------------------------------------------------
+ * viewBox 1200×900、preserveAspectRatio slice：
+ *   手機直式只看得到中間 x 370–830，桌機 16:9 看得到全寬，
+ *   所以重點都放在中間那一條，兩側是給大螢幕的延伸。
+ * 動態（雪、雨、霓虹閃爍）用 SVG 自己的 <animate>，系統設定「減少動態」時整組關掉。
+ * ================================================================== */
+const seededRandom = (seed) => () => {
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+
+function Snowfall({ seed, count, x0, x1, y0, y1, anim }) {
+  const flakes = useMemo(() => {
+    const r = seededRandom(seed);
+    return Array.from({ length: count }, () => ({ x: x0 + r() * (x1 - x0), y: y0 + r() * (y1 - y0), s: 2 + r() * 4, d: 5 + r() * 6, b: r() * 8, drift: (r() - 0.5) * 50 }));
+  }, [seed, count, x0, x1, y0, y1]);
+  return (
+    <g fill="#fff">
+      {flakes.map((f, i) => (
+        <circle key={i} cx={f.x} cy={f.y} r={f.s} opacity=".85">
+          {anim && <animate attributeName="cy" values={`${y0 - 10};${y1 + 10}`} dur={`${f.d}s`} begin={`-${f.b}s`} repeatCount="indefinite" />}
+          {anim && <animate attributeName="cx" values={`${f.x};${f.x + f.drift};${f.x}`} dur={`${f.d}s`} begin={`-${f.b}s`} repeatCount="indefinite" />}
+        </circle>
+      ))}
+    </g>
+  );
+}
+
+function SceneRoom({ anim }) {
+  const city = useMemo(() => {
+    const r = seededRandom(11);
+    const far = [];
+    for (let x = 320; x < 880; x += 26 + r() * 16) far.push({ x, w: 24 + r() * 18, h: 70 + r() * 110 });
+    const near = [];
+    for (let x = 320; x < 880; x += 34 + r() * 20) {
+      const h = 40 + r() * 90;
+      const lit = Array.from({ length: 6 }, () => ({ dx: 5 + r() * 22, dy: 8 + r() * (h - 16), on: r() > 0.45 }));
+      near.push({ x, w: 30 + r() * 20, h, lit });
+    }
+    return { far, near };
+  }, []);
+  return (
+    <>
+      <defs>
+        <linearGradient id="vnRoomWall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#F7E9DA" /><stop offset="1" stopColor="#EBD2BC" /></linearGradient>
+        <linearGradient id="vnRoomSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#8EA8D8" /><stop offset=".58" stopColor="#F2BFB3" /><stop offset="1" stopColor="#FFE3B4" /></linearGradient>
+        <radialGradient id="vnFrost"><stop offset="0" stopColor="#fff" stopOpacity=".75" /><stop offset="1" stopColor="#fff" stopOpacity="0" /></radialGradient>
+        <radialGradient id="vnLamp"><stop offset="0" stopColor="#FFE7A8" stopOpacity=".8" /><stop offset="1" stopColor="#FFE7A8" stopOpacity="0" /></radialGradient>
+        <clipPath id="vnRoomWin"><rect x="330" y="120" width="540" height="430" rx="16" /></clipPath>
+      </defs>
+      <rect width="1200" height="900" fill="url(#vnRoomWall)" />
+      {Array.from({ length: 26 }, (_, i) => <path key={i} d={`M${i * 48} 0 V690`} stroke="#B98F6E" strokeOpacity=".07" strokeWidth="3" />)}
+      {/* 牆上小畫（大螢幕才看得到） */}
+      <rect x="96" y="200" width="130" height="100" rx="6" fill="#FFF8EE" stroke="#6B4F3A" strokeWidth="8" />
+      <path d="M108 288 L150 236 L176 266 L196 246 L214 288 Z" fill="#9CC5A1" />
+      <circle cx="196" cy="226" r="9" fill="#FFB547" />
+
+      {/* 窗外：清晨的大阪 */}
+      <g clipPath="url(#vnRoomWin)">
+        <rect x="330" y="120" width="540" height="430" fill="url(#vnRoomSky)" />
+        <circle cx="600" cy="520" r="140" fill="#FFF1C9" opacity=".35" />
+        <circle cx="600" cy="520" r="62" fill="#FFF4D8" opacity=".95" />
+        {city.far.map((b, i) => <rect key={`f${i}`} x={b.x} y={550 - b.h} width={b.w} height={b.h} fill="#A9B3DA" />)}
+        <path d="M712 552 L722 300 L732 552 Z" fill="#7F8BBE" />
+        <rect x="706" y="330" width="32" height="15" rx="3" fill="#7F8BBE" />
+        <path d="M722 300 V270" stroke="#7F8BBE" strokeWidth="3" />
+        {city.near.map((b, i) => (
+          <g key={`n${i}`}>
+            <rect x={b.x} y={552 - b.h} width={b.w} height={b.h} fill="#7682B6" />
+            {b.lit.filter((l) => l.on).map((l, j) => <rect key={j} x={b.x + Math.min(l.dx, b.w - 8)} y={552 - b.h + l.dy} width="5" height="6" fill="#FFE7A3" />)}
+          </g>
+        ))}
+        <Snowfall seed={3} count={34} x0={330} x1={870} y0={110} y1={560} anim={anim} />
+        <circle cx="336" cy="548" r="90" fill="url(#vnFrost)" />
+        <circle cx="866" cy="548" r="90" fill="url(#vnFrost)" />
+        <circle cx="336" cy="126" r="60" fill="url(#vnFrost)" />
+        <circle cx="866" cy="126" r="60" fill="url(#vnFrost)" />
+      </g>
+      <rect x="330" y="120" width="540" height="430" rx="16" fill="none" stroke="#6B4F3A" strokeWidth="18" />
+      <path d="M600 120 V550 M330 335 H870" stroke="#6B4F3A" strokeWidth="10" />
+      <rect x="306" y="548" width="588" height="24" rx="6" fill="#FBF1E4" stroke="#6B4F3A" strokeWidth="5" />
+
+      {/* 窗台：熱咖啡 + 07:00 鬧鐘 */}
+      <g>
+        <rect x="408" y="512" width="38" height="36" rx="7" fill="#fff" stroke="#6B4F3A" strokeWidth="4" />
+        <path d="M446 520 Q462 522 460 534 Q458 544 446 542" stroke="#6B4F3A" strokeWidth="4" fill="none" />
+        {[418, 430].map((x, i) => (
+          <path key={x} d={`M${x} 504 Q${x - 6} 492 ${x} 482 Q${x + 6} 472 ${x} 462`} stroke="#fff" strokeWidth="4" fill="none" strokeLinecap="round" opacity=".8">
+            {anim && <animate attributeName="opacity" values=".1;.85;.1" dur="2.6s" begin={`${i * 0.9}s`} repeatCount="indefinite" />}
+          </path>
+        ))}
+        <rect x="712" y="508" width="84" height="40" rx="9" fill="#1F2350" />
+        <text x="754" y="537" fontSize="24" fontWeight="900" textAnchor="middle" fill="#FF6B6B" fontFamily="ui-monospace,Menlo,monospace">07:00</text>
+      </g>
+
+      {/* 窗簾 */}
+      <rect x="208" y="78" width="784" height="14" rx="7" fill="#6B4F3A" />
+      <path d="M226 90 Q262 360 232 650 L334 650 Q358 360 340 90 Z" fill="#E58C6A" stroke="#B8664A" strokeWidth="4" />
+      <path d="M262 100 Q286 360 262 640 M302 100 Q318 360 300 640" stroke="#C9714F" strokeWidth="4" fill="none" />
+      <path d="M974 90 Q938 360 968 650 L866 650 Q842 360 860 90 Z" fill="#E58C6A" stroke="#B8664A" strokeWidth="4" />
+      <path d="M938 100 Q914 360 938 640 M898 100 Q882 360 900 640" stroke="#C9714F" strokeWidth="4" fill="none" />
+
+      {/* 地板 + 床 + 床頭櫃 */}
+      <rect x="0" y="682" width="1200" height="16" fill="#F4E3CF" />
+      <rect x="0" y="698" width="1200" height="202" fill="#CFAE8C" />
+      {[740, 790, 850].map((y) => <path key={y} d={`M0 ${y} H1200`} stroke="#B8956F" strokeWidth="3" />)}
+      <path d="M-40 650 Q140 600 470 652 L540 900 L-40 900 Z" fill="#FFFFFF" stroke="#D8C8B8" strokeWidth="5" />
+      <path d="M-40 720 Q160 680 490 730" stroke="#BFD7EA" strokeWidth="18" fill="none" />
+      <ellipse cx="110" cy="636" rx="120" ry="40" fill="#F7F2EA" stroke="#D8C8B8" strokeWidth="4" />
+      <circle cx="1000" cy="520" r="150" fill="url(#vnLamp)" />
+      <rect x="930" y="590" width="150" height="110" rx="8" fill="#B88A63" stroke="#6B4F3A" strokeWidth="5" />
+      <path d="M970 590 L1040 590 L1022 530 L988 530 Z" fill="#FFE7A8" stroke="#6B4F3A" strokeWidth="4" />
+    </>
+  );
+}
+
+function ScenePark({ anim }) {
+  const crowd = useMemo(() => {
+    const r = seededRandom(21);
+    const tones = ["#5B6BA8", "#E07A5F", "#3D405B", "#81B29A", "#C06C84", "#6C5B7B", "#F2A65A", "#4D908E"];
+    return Array.from({ length: 58 }, () => {
+      const y = 600 + r() * 270;
+      const s = 0.55 + ((y - 600) / 270) * 0.95;
+      return { x: -20 + r() * 1240, y, s, c: tones[Math.floor(r() * tones.length)], hat: r() > 0.6 ? tones[Math.floor(r() * tones.length)] : null, phone: r() > 0.55, side: r() > 0.5 ? 1 : -1, b: r() * 2 };
+    }).sort((a, b) => a.y - b.y);
+  }, []);
+  const flags = ["#FF6B35", "#FFC93C", "#6CC08B", "#3E8EDE", "#EB2F96", "#7C5CE0"];
+  return (
+    <>
+      <defs>
+        <linearGradient id="vnParkSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#9EC6EE" /><stop offset="1" stopColor="#EAF3FB" /></linearGradient>
+        <linearGradient id="vnParkGround" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#EFE6D8" /><stop offset="1" stopColor="#D9CBB6" /></linearGradient>
+      </defs>
+      <rect width="1200" height="900" fill="url(#vnParkSky)" />
+      <circle cx="880" cy="170" r="48" fill="#FFF9E2" opacity=".9" />
+      {[[260, 170, 1], [700, 120, 0.8], [1040, 240, 1.1]].map(([x, y, s], i) => (
+        <g key={i} fill="#fff" opacity=".9">
+          {anim && <animateTransform attributeName="transform" type="translate" values="0 0;40 0;0 0" dur={`${18 + i * 6}s`} repeatCount="indefinite" />}
+          <ellipse cx={x} cy={y} rx={70 * s} ry={22 * s} />
+          <ellipse cx={x + 40 * s} cy={y - 14 * s} rx={46 * s} ry={24 * s} />
+          <ellipse cx={x - 36 * s} cy={y - 8 * s} rx={36 * s} ry={18 * s} />
+        </g>
+      ))}
+      {/* 遠景：城堡 + 雲霄飛車 */}
+      <g fill="#B9C4E4">
+        <rect x="660" y="390" width="200" height="140" />
+        <rect x="632" y="350" width="44" height="180" />
+        <rect x="842" y="340" width="46" height="190" />
+        <rect x="742" y="290" width="40" height="120" />
+      </g>
+      <g fill="#8D9ACA">
+        <path d="M628 352 L654 286 L680 352 Z" />
+        <path d="M838 342 L865 268 L892 342 Z" />
+        <path d="M738 292 L762 206 L786 292 Z" />
+      </g>
+      <path d="M762 206 V186 L780 192 L762 198" fill="#FF6B6B" stroke="#8D9ACA" strokeWidth="2" />
+      {[[700, 440], [760, 440], [820, 440], [654, 400], [865, 390]].map(([x, y], i) => <path key={i} d={`M${x - 8} ${y + 22} V${y + 8} Q${x} ${y - 4} ${x + 8} ${y + 8} V${y + 22} Z`} fill="#6E7BAE" />)}
+      <g stroke="#8193C4" strokeWidth="9" fill="none" strokeLinecap="round">
+        <path d="M120 540 Q210 250 300 420 Q330 470 380 470" />
+        <circle cx="440" cy="380" r="86" />
+      </g>
+      <g stroke="#A3B2DA" strokeWidth="4">
+        {[150, 190, 230, 270, 310, 360, 400, 440, 480, 520].map((x) => <path key={x} d={`M${x} 560 V${x < 340 ? 360 + Math.abs(x - 215) * 0.9 : 300 + Math.abs(x - 440) * 0.8}`} />)}
+      </g>
+
+      {/* 入園門 */}
+      <rect x="0" y="560" width="1200" height="340" fill="url(#vnParkGround)" />
+      {Array.from({ length: 13 }, (_, i) => <path key={i} d={`M${600 + (i - 6) * 40} 565 L${600 + (i - 6) * 210} 900`} stroke="#C9B89E" strokeWidth="2" />)}
+      {[620, 670, 740, 830].map((y) => <path key={y} d={`M0 ${y} H1200`} stroke="#C9B89E" strokeWidth="2" />)}
+      <g stroke="#3B3F6B" strokeWidth="6" strokeLinejoin="round">
+        <rect x="416" y="330" width="56" height="292" rx="6" fill="#F6E7C8" />
+        <rect x="728" y="330" width="56" height="292" rx="6" fill="#F6E7C8" />
+        <rect x="404" y="314" width="80" height="26" rx="6" fill="#FFC93C" />
+        <rect x="716" y="314" width="80" height="26" rx="6" fill="#FFC93C" />
+        <path d="M404 352 Q600 240 796 352 L796 392 Q600 282 404 392 Z" fill="#E8453C" />
+      </g>
+      <text x="600" y="330" fontSize="28" fontWeight="900" textAnchor="middle" fill="#fff" letterSpacing="3">入園口 ENTRANCE</text>
+      <path d="M472 420 Q600 470 728 420" stroke="#3B3F6B" strokeWidth="3" fill="none" />
+      {Array.from({ length: 9 }, (_, i) => {
+        const t = (i + 0.5) / 9;
+        const x = 472 + t * 256;
+        const y = 420 + Math.sin(t * Math.PI) * 38;
+        return <path key={i} d={`M${x - 11} ${y} L${x + 11} ${y} L${x} ${y + 24} Z`} fill={flags[i % flags.length]} stroke="#3B3F6B" strokeWidth="2" />;
+      })}
+
+      {/* 人潮：每個人都在低頭滑手機 */}
+      {crowd.map((p, i) => (
+        <g key={i} transform={`translate(${p.x} ${p.y}) scale(${p.s})`}>
+          <rect x="-17" y="-48" width="34" height="56" rx="15" fill={p.c} />
+          <circle cx="0" cy="-60" r="13" fill="#F2D3B5" />
+          {p.hat && <path d="M-14 -62 Q0 -82 14 -62 Z" fill={p.hat} />}
+          {p.phone && (
+            <rect x={p.side * 12 - 5} y="-44" width="10" height="15" rx="2" fill="#9BE7FF" stroke="#3B3F6B" strokeWidth="1.5">
+              {anim && <animate attributeName="opacity" values="1;.45;1" dur="1.4s" begin={`${p.b}s`} repeatCount="indefinite" />}
+            </rect>
+          )}
+        </g>
+      ))}
+      <Snowfall seed={9} count={30} x0={0} x1={1200} y0={0} y1={900} anim={anim} />
+    </>
+  );
+}
+
+const NEON = [
+  { x: 450, y: 362, w: 300, h: 62, color: "#7CF29A", text: "道頓堀", size: 40, flicker: false },
+  { x: 372, y: 168, w: 58, h: 252, color: "#FF4FA3", vtext: "たこ焼", flicker: true },
+  { x: 772, y: 190, w: 58, h: 230, color: "#FFD23F", vtext: "串カツ", flicker: false },
+  { x: 232, y: 240, w: 52, h: 236, color: "#3DE2FF", vtext: "ラーメン", flicker: false },
+  { x: 884, y: 150, w: 60, h: 220, color: "#FF6B35", vtext: "居酒屋", flicker: true },
+  { x: 472, y: 252, w: 150, h: 46, color: "#3DE2FF", text: "お好み焼", size: 26, flicker: false },
+];
+
+function SceneCanal({ anim }) {
+  const wins = useMemo(() => {
+    const r = seededRandom(31);
+    return Array.from({ length: 90 }, () => ({ x: r() * 1200, y: 120 + r() * 440, on: r() > 0.55 }));
+  }, []);
+  const rain = useMemo(() => {
+    const r = seededRandom(41);
+    return Array.from({ length: 110 }, () => ({ x: -260 + r() * 1500, y: r() * 900, l: 26 + r() * 30 }));
+  }, []);
+  const umbrellas = [[330, "#E0508F"], [470, "#3E8EDE"], [640, "#FFC93C"], [760, "#6CC08B"], [930, "#FF6B35"]];
+  return (
+    <>
+      <defs>
+        <linearGradient id="vnCanalSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#15122A" /><stop offset=".62" stopColor="#3B2558" /></linearGradient>
+        <linearGradient id="vnCanalWater" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#1A2142" /><stop offset="1" stopColor="#0A0E20" /></linearGradient>
+        <filter id="vnGlow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="6" result="b" />
+          <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+        <filter id="vnBlur" x="-50%" y="-10%" width="200%" height="120%"><feGaussianBlur stdDeviation="9" /></filter>
+      </defs>
+      <rect width="1200" height="900" fill="url(#vnCanalSky)" />
+      <ellipse cx="600" cy="540" rx="560" ry="140" fill="#FF4FA3" opacity=".12" />
+      <rect x="-40" y="110" width="270" height="520" fill="#1C1833" />
+      <rect x="196" y="200" width="226" height="430" fill="#241F42" />
+      <rect x="420" y="320" width="360" height="300" fill="#2A2450" />
+      <rect x="778" y="150" width="236" height="480" fill="#221D3E" />
+      <rect x="990" y="90" width="260" height="540" fill="#1A1731" />
+      {wins.map((w, i) => <rect key={i} x={w.x} y={w.y} width="7" height="9" fill={w.on ? "#FFD98A" : "#3B3566"} opacity={w.on ? 0.55 : 0.6} />)}
+
+      {/* 霓虹招牌 */}
+      {NEON.map((n, i) => (
+        <g key={i} filter="url(#vnGlow)">
+          {anim && n.flicker && <animate attributeName="opacity" values="1;1;.35;1;1;.2;1;1" dur={`${3 + i}s`} repeatCount="indefinite" />}
+          <rect x={n.x} y={n.y} width={n.w} height={n.h} rx="9" fill="#120F24" stroke={n.color} strokeWidth="5" />
+          {n.text && <text x={n.x + n.w / 2} y={n.y + n.h / 2 + n.size * 0.36} fontSize={n.size} fontWeight="900" textAnchor="middle" fill={n.color}>{n.text}</text>}
+          {n.vtext && Array.from(n.vtext).map((ch, j, arr) => (
+            <text key={j} x={n.x + n.w / 2} y={n.y + ((j + 0.5) * n.h) / arr.length + 13} fontSize="34" fontWeight="900" textAnchor="middle" fill={n.color}>{ch}</text>
+          ))}
+        </g>
+      ))}
+
+      {/* 運河倒影 */}
+      <rect x="0" y="622" width="1200" height="278" fill="url(#vnCanalWater)" />
+      {NEON.map((n, i) => (
+        <rect key={i} x={n.x + n.w * 0.15} y="640" width={n.w * 0.7} height="230" fill={n.color} opacity=".3" filter="url(#vnBlur)">
+          {anim && <animate attributeName="opacity" values=".18;.34;.22;.3;.18" dur={`${2.4 + i * 0.4}s`} repeatCount="indefinite" />}
+        </rect>
+      ))}
+      {[680, 720, 770, 830].map((y, i) => <path key={y} d={`M0 ${y} Q300 ${y - 6} 600 ${y} T1200 ${y}`} stroke="#fff" strokeOpacity={0.06 + i * 0.02} strokeWidth="2" fill="none" />)}
+
+      {/* 橋 + 撐傘的人 */}
+      <path d="M-20 600 Q600 560 1220 600 L1220 628 Q600 588 -20 628 Z" fill="#0F0D20" />
+      <path d="M-20 556 Q600 516 1220 556" stroke="#0F0D20" strokeWidth="9" fill="none" />
+      {Array.from({ length: 31 }, (_, i) => {
+        const x = -20 + i * 41;
+        const t = (x + 20) / 1240;
+        const top = 556 - Math.sin(t * Math.PI) * 40;
+        return <path key={i} d={`M${x} ${top} V${top + 46}`} stroke="#0F0D20" strokeWidth="5" />;
+      })}
+      {umbrellas.map(([x, c], i) => {
+        const t = (x + 20) / 1240;
+        const base = 590 - Math.sin(t * Math.PI) * 40;
+        return (
+          <g key={i}>
+            <rect x={x - 10} y={base - 52} width="20" height="48" rx="8" fill="#0F0D20" />
+            <path d={`M${x - 34} ${base - 60} Q${x} ${base - 104} ${x + 34} ${base - 60} Z`} fill={c} />
+            <path d={`M${x} ${base - 92} V${base - 40}`} stroke="#0F0D20" strokeWidth="3" />
+          </g>
+        );
+      })}
+
+      {/* 雨 */}
+      <g stroke="#CFE3FF" strokeWidth="2" strokeLinecap="round" opacity=".45">
+        {anim && <animateTransform attributeName="transform" type="translate" values="0 0;-225 900" dur="0.85s" repeatCount="indefinite" />}
+        {[0, 1].map((k) => (
+          <g key={k} transform={k ? "translate(225 -900)" : undefined}>
+            {rain.map((d, i) => <path key={i} d={`M${d.x} ${d.y} l${-d.l * 0.25} ${d.l}`} />)}
+          </g>
+        ))}
+      </g>
+    </>
+  );
+}
+
+const ARCADE_SHOPS = [
+  { label: "藥妝", sign: "#2F9E62", glow: "#FFF3C4" },
+  { label: "TAX FREE", sign: "#E8453C", glow: "#FFE1D3" },
+  { label: "古着", sign: "#8B5A2B", glow: "#FDE7C8" },
+  { label: "SALE", sign: "#EB2F96", glow: "#FFD6EA" },
+  { label: "家電", sign: "#3E8EDE", glow: "#DDF1FA" },
+  { label: "抹茶", sign: "#4D908E", glow: "#E3F5EA" },
+];
+
+function SceneArcade({ anim }) {
+  const VX = 600;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const cuts = [0, 0.3, 0.52, 0.67, 0.78, 0.86, 0.92];
+  // 左牆：上緣 (0,110)→(530,345)，下緣 (0,880)→(530,515)；右牆鏡射
+  const shops = cuts.slice(0, -1).map((t0, i) => {
+    const t1 = cuts[i + 1];
+    const tl = [lerp(0, 530, t0), lerp(110, 345, t0)];
+    const tr = [lerp(0, 530, t1), lerp(110, 345, t1)];
+    const br = [lerp(0, 530, t1), lerp(880, 515, t1)];
+    const bl = [lerp(0, 530, t0), lerp(880, 515, t0)];
+    return { tl, tr, br, bl, h: bl[1] - tl[1], ...ARCADE_SHOPS[i % ARCADE_SHOPS.length] };
+  });
+  const people = useMemo(() => {
+    const r = seededRandom(51);
+    const tones = ["#2B2340", "#3D3355", "#4A3D63"];
+    const bags = ["#EB2F96", "#FFC93C", "#6CC08B", "#3E8EDE", "#fff"];
+    return Array.from({ length: 22 }, () => {
+      const y = 540 + r() * 330;
+      const d = (y - 520) / 380;
+      return { x: lerp(VX - 70, VX + 70, r()) + (r() - 0.5) * 900 * d, y, s: 0.35 + d * 1.2, c: tones[Math.floor(r() * 3)], bag: bags[Math.floor(r() * bags.length)], side: r() > 0.5 ? 1 : -1 };
+    }).sort((a, b) => a.y - b.y);
+  }, []);
+  const quad = (p, mirror) => p.map(([x, y]) => `${mirror ? 1200 - x : x},${y}`).join(" ");
+  const slopeTop = (Math.atan2(345 - 110, 530) * 180) / Math.PI;
+  return (
+    <>
+      <defs>
+        <radialGradient id="vnArcadeEnd"><stop offset="0" stopColor="#FFF1C9" /><stop offset="1" stopColor="#FFF1C9" stopOpacity="0" /></radialGradient>
+        <linearGradient id="vnArcadeFloor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#7A6670" /><stop offset="1" stopColor="#4C3E4C" /></linearGradient>
+      </defs>
+      <rect width="1200" height="900" fill="#2B2340" />
+      {/* 玻璃頂棚 */}
+      <path d={`M0 0 H1200 L${VX + 70} 330 H${VX - 70} Z`} fill="#3A3060" />
+      {Array.from({ length: 9 }, (_, i) => <path key={i} d={`M${i * 150} 0 L${VX - 70 + i * 17.5} 330`} stroke="#5A4E86" strokeWidth="3" />)}
+      {[40, 110, 175, 230, 275, 305].map((y) => {
+        const t = y / 330;
+        return <path key={y} d={`M${lerp(0, VX - 70, t)} ${y} Q${VX} ${y + 18 * (1 - t)} ${lerp(1200, VX + 70, t)} ${y}`} stroke="#6B5E9A" strokeWidth={6 * (1 - t) + 1.5} fill="none" />;
+      })}
+      {[0, 1].map((side) => [0.08, 0.24, 0.4, 0.55, 0.68, 0.8].map((t, i) => {
+        const x = side ? lerp(860, VX + 40, t) : lerp(340, VX - 40, t);
+        const y = lerp(30, 315, t);
+        return (
+          <circle key={`${side}-${i}`} cx={x} cy={y} r={11 * (1 - t) + 3} fill="#FFE3A0">
+            {anim && <animate attributeName="opacity" values="1;.7;1" dur={`${2 + i * 0.3}s`} repeatCount="indefinite" />}
+          </circle>
+        );
+      }))}
+      {/* 盡頭的光 */}
+      <rect x={VX - 70} y="330" width="140" height="190" fill="#FFE9B8" />
+      <circle cx={VX} cy="430" r="190" fill="url(#vnArcadeEnd)" opacity=".7" />
+
+      {/* 兩側店面 */}
+      {[false, true].map((mirror) => (
+        <g key={String(mirror)}>
+          <polygon points={quad([[0, 90], [530, 340], [530, 520], [0, 900]], mirror)} fill="#43375F" />
+          {shops.map((s, i) => {
+            const band = 0.2;
+            const sb = [s.tl, s.tr, [s.tr[0], s.tr[1] + (s.br[1] - s.tr[1]) * band], [s.tl[0], s.tl[1] + s.h * band]];
+            const win = [[s.tl[0] + 4, s.tl[1] + s.h * 0.3], [s.tr[0] - 2, s.tr[1] + (s.br[1] - s.tr[1]) * 0.3], [s.br[0] - 2, s.br[1] - 6], [s.bl[0] + 4, s.bl[1] - 6]];
+            const cx = (s.tl[0] + s.tr[0]) / 2;
+            const cy = (s.tl[1] + s.tr[1]) / 2 + s.h * band * 0.5;
+            const label = mirror ? ARCADE_SHOPS[(i + 3) % ARCADE_SHOPS.length] : s;
+            // 字級同時受高度與店面寬度限制，英文字大約半個中文字寬
+            const em = Array.from(label.label).reduce((a, ch) => a + (/[\x00-\x7F]/.test(ch) ? 0.62 : 1), 0);
+            const fs = Math.max(7, Math.min(s.h * 0.085, ((s.tr[0] - s.tl[0]) * 0.82) / em));
+            return (
+              <g key={i}>
+                <polygon points={quad([s.tl, s.tr, s.br, s.bl], mirror)} fill="#2F2647" stroke="#1F1A33" strokeWidth="3" />
+                <polygon points={quad(win, mirror)} fill={label.glow} opacity=".92" />
+                {[0.45, 0.6, 0.75].map((k) => {
+                  const y0 = lerp(win[0][1], win[3][1], k);
+                  const y1 = lerp(win[1][1], win[2][1], k);
+                  return <path key={k} d={`M${mirror ? 1200 - win[0][0] : win[0][0]} ${y0} L${mirror ? 1200 - win[1][0] : win[1][0]} ${y1}`} stroke={label.sign} strokeOpacity=".45" strokeWidth={Math.max(1.5, s.h * 0.012)} />;
+                })}
+                <polygon points={quad(sb, mirror)} fill={label.sign} />
+                <text
+                  transform={`translate(${mirror ? 1200 - cx : cx} ${cy + fs * 0.35}) skewY(${mirror ? -slopeTop : slopeTop})`}
+                  fontSize={fs}
+                  fontWeight="900"
+                  textAnchor="middle"
+                  fill="#fff"
+                >
+                  {label.label}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+      ))}
+
+      {/* 地板 */}
+      <polygon points={`0,900 530,520 ${VX + 70},520 1200,900`} fill="url(#vnArcadeFloor)" />
+      {Array.from({ length: 11 }, (_, i) => <path key={i} d={`M${VX - 70 + i * 14} 520 L${-300 + i * 180} 900`} stroke="#8D7A84" strokeOpacity=".5" strokeWidth="2" />)}
+      {[540, 568, 606, 660, 740, 850].map((y) => <path key={y} d={`M0 ${y} H1200`} stroke="#8D7A84" strokeOpacity=".4" strokeWidth="2" />)}
+      <ellipse cx={VX} cy="700" rx="260" ry="90" fill="#FFE3A0" opacity=".12" />
+
+      {/* 閉店倒數的吊牌 */}
+      <path d="M548 92 L560 158 M652 92 L640 158" stroke="#1F1A33" strokeWidth="3" />
+      <rect x="512" y="150" width="176" height="62" rx="10" fill="#FFF3A6" stroke="#1F2350" strokeWidth="5" />
+      <text x="600" y="176" fontSize="17" fontWeight="900" textAnchor="middle" fill="#1F2350">心齋橋筋商店街</text>
+      <text x="600" y="201" fontSize="17" fontWeight="900" textAnchor="middle" fill="#E8453C">營業至 20:30</text>
+
+      {/* 逛街人潮 */}
+      {people.map((p, i) => (
+        <g key={i} transform={`translate(${p.x} ${p.y}) scale(${p.s})`} opacity=".92">
+          <rect x="-14" y="-46" width="28" height="50" rx="12" fill={p.c} />
+          <circle cx="0" cy="-56" r="11" fill={p.c} />
+          <rect x={p.side * 14 - 6} y="-22" width="13" height="16" rx="2" fill={p.bag} />
+        </g>
+      ))}
+      {anim && Array.from({ length: 14 }, (_, i) => (
+        <circle key={i} cx={200 + ((i * 67) % 800)} cy="600" r="3" fill="#FFE3A0" opacity="0">
+          <animate attributeName="cy" values="640;360" dur={`${5 + (i % 4)}s`} begin={`${i * 0.6}s`} repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0;.8;0" dur={`${5 + (i % 4)}s`} begin={`${i * 0.6}s`} repeatCount="indefinite" />
+        </circle>
+      ))}
+    </>
+  );
+}
+
+const SCENES = { room: SceneRoom, park: ScenePark, canal: SceneCanal, arcade: SceneArcade };
+
+function SceneBackdrop({ kind }) {
+  const reduce = useReducedMotion();
+  const Scene = SCENES[kind] || SceneRoom;
+  return (
+    <motion.div
+      className="absolute inset-0"
+      initial={{ scale: 1.08, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ duration: 1.1, ease: "easeOut" }}
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 1200 900" preserveAspectRatio="xMidYMid slice" className="h-full w-full" style={{ display: "block" }}>
+        <Scene anim={!reduce} />
+      </svg>
+    </motion.div>
+  );
+}
+
+/* ==================================================================
+ * 8.6 角色招牌動作（共識／衝突），揭曉時演給大家看
+ * ------------------------------------------------------------------
+ * 舞台固定 300×170：左邊是發動動作的人，右邊是對象。
+ * 用 CSS keyframes 做，所以每段動畫都是「掛上去就自己播」，換 key 就重播。
+ * ================================================================== */
+const VN_CSS = `
+@keyframes ct-jab{0%,100%{transform:translateX(0)}18%{transform:translateX(30px) rotate(7deg)}34%{transform:translateX(0)}52%{transform:translateX(30px) rotate(7deg)}68%{transform:translateX(0)}}
+@keyframes ct-recoil{0%,100%{transform:translateX(0)}20%,54%{transform:translateX(12px) rotate(9deg)}36%,70%{transform:translateX(0)}}
+@keyframes ct-flash{0%,100%{opacity:0;transform:scale(.3)}18%,52%{opacity:1;transform:scale(1.15)}34%,68%{opacity:0;transform:scale(.6)}}
+@keyframes ct-slide-off{0%{transform:translateX(0)}18%{transform:translateX(14px) skewX(12deg)}100%{transform:translateX(-280px) skewX(-22deg)}}
+@keyframes ct-speedlines{0%{opacity:0;transform:translateX(30px)}25%{opacity:1}100%{opacity:0;transform:translateX(-90px)}}
+@keyframes ct-melt{0%{transform:scale(1,1)}25%{transform:scale(1.06,.9)}45%{transform:scale(.95,1.04)}100%{transform:translateY(8px) scale(1.75,.14)}}
+@keyframes ct-puddle{0%,40%{opacity:0;transform:scaleX(.2)}100%{opacity:1;transform:scaleX(1)}}
+@keyframes ct-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px) rotate(-4deg)}75%{transform:translateX(5px) rotate(4deg)}}
+@keyframes ct-tremble{0%,100%{transform:translate(0,0)}25%{transform:translate(-2px,1px)}50%{transform:translate(2px,-1px)}75%{transform:translate(-1px,-1px)}}
+@keyframes ct-flip-menu{0%{opacity:0;transform:translate(0,30px) rotate(0)}15%{opacity:1}45%{transform:translate(40px,-40px) rotate(200deg)}100%{opacity:1;transform:translate(80px,40px) rotate(400deg)}}
+@keyframes ct-pop{0%{opacity:0;transform:scale(.2)}50%{opacity:1;transform:scale(1.25)}70%{transform:scale(.95)}100%{opacity:1;transform:scale(1)}}
+@keyframes ct-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@keyframes ct-windup{0%,100%{transform:translateX(0) rotate(0)}20%{transform:translateX(-10px) rotate(-10deg)}35%{transform:translateX(14px) rotate(8deg)}60%{transform:translateX(0) rotate(0)}}
+@keyframes ct-throw{0%{opacity:0;transform:translate(0,0) rotate(0)}10%{opacity:1}55%{transform:translate(105px,-8px) rotate(-25deg)}70%{transform:translate(100px,4px) rotate(-10deg)}100%{opacity:0;transform:translate(110px,60px) rotate(-60deg)}}
+@keyframes ct-knockback{0%,45%{transform:translateX(0) rotate(0)}58%{transform:translateX(26px) rotate(20deg)}100%{transform:translateX(18px) rotate(12deg)}}
+@keyframes ct-shutter{0%{transform:translateY(-102%)}60%{transform:translateY(0)}72%{transform:translateY(-7%)}84%,100%{transform:translateY(0)}}
+@keyframes ct-charge{0%{transform:translateX(0)}28%{transform:translateX(-16px) rotate(-6deg)}52%{transform:translateX(64px) rotate(6deg)}70%,100%{transform:translateX(44px) rotate(0)}}
+@keyframes ct-bounced{0%,48%{transform:translate(0,0) rotate(0)}68%{transform:translate(26px,-38px) rotate(45deg)}100%{transform:translate(30px,4px) rotate(80deg)}}
+@keyframes ct-impact{0%{opacity:0;transform:scale(.3)}35%{opacity:1;transform:scale(1.2)}100%{opacity:0;transform:scale(1.5)}}
+@keyframes ct-wave{0%{transform:rotate(-28deg)}100%{transform:rotate(22deg)}}
+@keyframes ct-lean-in-l{0%{transform:translateX(0)}40%,100%{transform:translateX(30px) rotate(8deg)}}
+@keyframes ct-lean-in-r{0%{transform:translateX(0)}40%,100%{transform:translateX(-30px) rotate(-8deg)}}
+@keyframes ct-tap-l{0%,100%{transform:translateX(0)}40%{transform:translateX(44px) rotate(14deg)}55%{transform:translateX(30px) rotate(4deg)}}
+@keyframes ct-tap-r{0%,100%{transform:translateX(0)}40%{transform:translateX(-44px) rotate(-14deg)}55%{transform:translateX(-30px) rotate(-4deg)}}
+@keyframes ct-frame{0%{opacity:0;transform:scale(1.5)}40%{opacity:1;transform:scale(1)}100%{opacity:1;transform:scale(1)}}
+@keyframes ct-float-heart{0%{opacity:0;transform:translateY(12px) scale(.4)}45%{opacity:1;transform:translateY(-6px) scale(1.2)}100%{opacity:0;transform:translateY(-36px) scale(1)}}
+@keyframes ct-bubble{0%{opacity:0;transform:translateY(0) scale(.3)}20%{opacity:.95}100%{opacity:0;transform:translateY(-95px) scale(1.25)}}
+@keyframes ct-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes ct-hop{0%,100%{transform:translateY(0) scale(1,1)}12%{transform:translateY(0) scale(1.08,.9)}40%{transform:translateY(-28px) scale(.95,1.06)}70%{transform:translateY(0) scale(1.06,.94)}}
+@keyframes ct-stamp{0%{opacity:0;transform:translateY(-90px) scale(1.5) rotate(-20deg)}45%{opacity:1}60%{transform:translateY(0) scale(.9) rotate(-12deg)}70%{transform:scale(1.08) rotate(-12deg)}100%{opacity:1;transform:scale(1) rotate(-12deg)}}
+@keyframes ct-nod{0%,100%{transform:rotate(0)}30%{transform:rotate(-8deg)}60%{transform:rotate(6deg)}}
+@keyframes ct-pass{0%{opacity:0;transform:translateX(0) rotate(-12deg)}15%{opacity:1}70%,100%{opacity:1;transform:translateX(72px) rotate(6deg)}}
+@keyframes ct-confetti{0%{opacity:1;transform:translateY(-10px) rotate(0)}100%{opacity:0;transform:translateY(170px) rotate(620deg)}}
+@keyframes ct-together-l{0%{transform:translateX(0)}45%,100%{transform:translateX(38px)}}
+@keyframes ct-together-r{0%{transform:translateX(0)}45%,100%{transform:translateX(-38px)}}
+@keyframes ct-camera-flash{0%,58%{opacity:0}62%{opacity:.95}100%{opacity:0}}
+@keyframes ct-drive-in{0%{transform:translateX(260px)}70%{transform:translateX(-8px)}85%{transform:translateX(3px)}100%{transform:translateX(0)}}
+@media (prefers-reduced-motion: reduce){.ct-anim{animation-duration:.01ms!important;animation-iteration-count:1!important}}
+`;
+
+const ACT_STAR = (cx, cy, outer, inner, n) =>
+  Array.from({ length: n * 2 }, (_, i) => {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (Math.PI * i) / n - Math.PI / 2;
+    return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`;
+  }).join(" ");
+
+function ActBurst({ size = 48, text, color = "#FFC93C" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48">
+      <polygon points={ACT_STAR(24, 24, 23, 11, 8)} fill="#FFF6B3" stroke={color} strokeWidth="2.5" strokeLinejoin="round" />
+      {text && <text x="24" y="29" fontSize="13" fontWeight="900" textAnchor="middle" fill="#D7263D">{text}</text>}
+    </svg>
+  );
+}
+
+function ActTag({ text, color = INK }) {
+  return (
+    <div className="whitespace-nowrap rounded-xl border-2 bg-white px-2 py-0.5 text-[13px] font-black" style={{ borderColor: color, color }}>
+      {text}
+    </div>
+  );
+}
+
+function ActFx({ style, children }) {
+  return <div className="ct-anim pointer-events-none absolute" style={style}>{children}</div>;
+}
+
+// 舞台座標速查：左邊角色 x 28–128，右邊角色 x 172–272，中線 x 150，地面 y 156
+const PERSONA_ACTIONS = {
+  /* 打卡機：取景框框比心／鏡頭戳人 */
+  camera: {
+    conflict: {
+      actor: "ct-jab 1.6s ease-in-out both", partner: "ct-recoil 1.6s ease-in-out both",
+      fx: () => <ActFx style={{ left: 126, top: 74, animation: "ct-flash 1.6s ease-in-out both" }}><ActBurst text="喀!" /></ActFx>,
+    },
+    agree: {
+      actor: "ct-lean-in-l 1.8s ease-out both", partner: "ct-lean-in-r 1.8s ease-out both",
+      fx: (A) => (
+        <>
+          <ActFx style={{ left: 62, top: 22, animation: "ct-frame .7s .3s ease-out both" }}>
+            <svg width="176" height="140" viewBox="0 0 176 140">
+              <path d="M4 26 V4 H26 M150 4 H172 V26 M172 114 V136 H150 M26 136 H4 V114" stroke={A} strokeWidth="5" fill="none" strokeLinecap="round" />
+              <circle cx="160" cy="14" r="4" fill="#E53935" />
+            </svg>
+          </ActFx>
+          <ActFx style={{ left: 133, top: 30, animation: "ct-float-heart 1.1s .6s ease-out infinite both" }}>
+            <svg width="34" height="34" viewBox="0 0 200 200"><path d={heartPath(100, 110, 11)} fill={A} /></svg>
+          </ActFx>
+        </>
+      ),
+    },
+  },
+  /* 特種兵：超響亮擊掌／急速滑步離場 */
+  soldier: {
+    conflict: {
+      actor: "ct-slide-off 1.3s .25s cubic-bezier(.6,0,.9,.4) both", partner: "ct-shake .5s ease-in-out 3 both",
+      fx: (A) => (
+        <>
+          <ActFx style={{ left: 40, top: 80, animation: "ct-speedlines 1s .45s ease-out both" }}>
+            <svg width="110" height="60" viewBox="0 0 110 60"><path d="M10 10 H90 M0 26 H100 M20 42 H110 M30 56 H80" stroke={A} strokeWidth="3" strokeLinecap="round" /></svg>
+          </ActFx>
+          <ActFx style={{ left: 200, top: 26, animation: "ct-pop .4s .9s ease-out both" }}><ActTag text="欸？人呢" /></ActFx>
+        </>
+      ),
+    },
+    agree: {
+      actor: "ct-tap-l 1.2s ease-in-out both", partner: "ct-tap-r 1.2s ease-in-out both",
+      fx: () => <ActFx style={{ left: 122, top: 60, animation: "ct-impact .9s .4s ease-out both" }}><ActBurst size={56} text="啪!" /></ActFx>,
+    },
+  },
+  /* 水豚：一起吐放空泡泡／化成一灘黃水 */
+  capybara: {
+    conflict: {
+      actor: "ct-melt 1.6s .1s ease-in both", actorOrigin: "50% 95%", partner: "ct-shake .5s ease-in-out 2 both",
+      fx: () => (
+        <ActFx style={{ left: 8, top: 136, animation: "ct-puddle 1.6s .1s ease-in both" }}>
+          <svg width="140" height="26" viewBox="0 0 140 26">
+            <path d="M8 14 Q20 2 50 6 Q70 0 100 5 Q132 4 134 14 Q130 24 96 22 Q70 26 40 22 Q4 24 8 14 Z" fill={BODY} stroke={INK} strokeWidth="2.5" />
+            <ellipse cx="46" cy="11" rx="10" ry="2.5" fill="#fff" fillOpacity=".6" />
+          </svg>
+        </ActFx>
+      ),
+    },
+    agree: {
+      actor: "ct-bob 1.8s ease-in-out infinite", partner: "ct-bob 1.8s .3s ease-in-out infinite",
+      fx: (A) => (
+        <>
+          {[[72, 0], [84, 0.5], [76, 1], [216, 0.25], [228, 0.75], [220, 1.2]].map(([x, d], i) => (
+            <ActFx key={i} style={{ left: x, top: 92, animation: `ct-bubble 1.6s ${d}s ease-out infinite both` }}>
+              <div className="rounded-full border-2 bg-white/70" style={{ width: 12 + (i % 3) * 4, height: 12 + (i % 3) * 4, borderColor: A }} />
+            </ActFx>
+          ))}
+        </>
+      ),
+    },
+  },
+  /* 購物狂：提袋開箱大歡呼／購物紙袋無情衝撞 */
+  shopper: {
+    conflict: {
+      actor: "ct-charge 1.4s ease-in-out both", partner: "ct-bounced 1.4s ease-out both",
+      fx: (A) => <ActFx style={{ left: 150, top: 64, animation: "ct-impact .7s .6s ease-out both" }}><ActBurst size={56} text="砰!" color={A} /></ActFx>,
+    },
+    agree: {
+      actor: "ct-hop .8s ease-out infinite", partner: "ct-hop .8s .2s ease-out infinite",
+      fx: (A) => (
+        <>
+          {Array.from({ length: 16 }, (_, i) => (
+            <ActFx key={i} style={{ left: 12 + ((i * 53) % 276), top: -10, animation: `ct-confetti ${1.2 + (i % 3) * 0.25}s ${(i * 0.09).toFixed(2)}s linear infinite both` }}>
+              <div style={{ width: 6, height: 11, borderRadius: 2, background: [A, "#3E8EDE", "#FFC93C", "#6CC08B"][i % 4] }} />
+            </ActFx>
+          ))}
+        </>
+      ),
+    },
+  },
+  /* 精算師：蓋章批准報銷／甩出厚帳單打臉 */
+  accountant: {
+    conflict: {
+      actor: "ct-windup 1s ease-in-out both", partner: "ct-knockback 1.6s ease-out both",
+      fx: () => (
+        <ActFx style={{ left: 104, top: 64, animation: "ct-throw 1.3s .25s ease-in both" }}>
+          <svg width="40" height="66" viewBox="0 0 40 66">
+            <path d="M2 2 H38 V58 L33 64 L28 58 L23 64 L18 58 L13 64 L8 58 L2 64 Z" fill="#fff" stroke="#94A3B8" strokeWidth="1.5" strokeLinejoin="round" />
+            <path d="M8 12 H32 M8 19 H28 M8 26 H32 M8 33 H24 M8 40 H32" stroke="#94A3B8" strokeWidth="1.5" />
+            <text x="20" y="53" fontSize="9" fontWeight="900" fill="#D7263D" textAnchor="middle">¥¥¥</text>
+          </svg>
+        </ActFx>
+      ),
+    },
+    agree: {
+      actor: "ct-nod .9s ease-in-out 2 both", partner: "ct-hop .7s 1s ease-out both",
+      fx: () => (
+        <>
+          <ActFx style={{ left: 118, top: 44, animation: "ct-pop .4s ease-out both" }}>
+            <svg width="64" height="84" viewBox="0 0 64 84">
+              <rect x="1" y="1" width="62" height="82" rx="4" fill="#fff" stroke="#CBD5E1" strokeWidth="2" />
+              <text x="32" y="16" fontSize="9" fontWeight="800" fill="#334155" textAnchor="middle">報銷單</text>
+              <path d="M9 26 H55 M9 34 H48 M9 42 H55 M9 50 H40" stroke="#CBD5E1" strokeWidth="2" />
+            </svg>
+          </ActFx>
+          <ActFx style={{ left: 128, top: 86, animation: "ct-stamp .9s .45s ease-in both" }}>
+            <svg width="44" height="44" viewBox="0 0 44 44">
+              <circle cx="22" cy="22" r="19" fill="#fff" fillOpacity=".4" stroke="#D7263D" strokeWidth="3" />
+              <circle cx="22" cy="22" r="15" fill="none" stroke="#D7263D" strokeWidth="1.2" />
+              <text x="22" y="27" fontSize="12" fontWeight="900" fill="#D7263D" textAnchor="middle">核准</text>
+            </svg>
+          </ActFx>
+        </>
+      ),
+    },
+  },
+  /* 探險家：悄悄遞出私房地圖／拉下鐵捲門自閉 */
+  explorer: {
+    conflict: {
+      partner: "ct-shake .5s 1s ease-in-out 2 both",
+      fx: (A) => (
+        <div className="pointer-events-none absolute overflow-hidden" style={{ left: 18, top: 0, width: 122, height: 160 }}>
+          <div className="ct-anim absolute inset-0" style={{ animation: "ct-shutter 1s .2s ease-in both" }}>
+            <svg width="122" height="160" viewBox="0 0 122 160">
+              <rect width="122" height="160" fill="#9AA5B1" />
+              {Array.from({ length: 16 }, (_, i) => <path key={i} d={`M0 ${i * 10 + 9} H122`} stroke="#6B7785" strokeWidth="2" />)}
+              <rect x="0" y="152" width="122" height="8" fill="#4B5563" />
+              <rect x="51" y="150" width="20" height="6" rx="2" fill="#D1D5DB" />
+              <rect x="22" y="60" width="78" height="26" rx="3" fill="#fff" stroke={A} strokeWidth="2" />
+              <text x="61" y="78" fontSize="12" fontWeight="900" fill={A} textAnchor="middle">本日公休</text>
+            </svg>
+          </div>
+        </div>
+      ),
+    },
+    agree: {
+      actor: "ct-lean-in-l 1.8s ease-out both", partner: "ct-lean-in-r 1.8s .6s ease-out both",
+      fx: (A) => (
+        <>
+          <ActFx style={{ left: 26, top: 14, animation: "ct-pop .4s .1s ease-out both" }}><ActTag text="噓…內行的" color={A} /></ActFx>
+          <ActFx style={{ left: 98, top: 92, animation: "ct-pass 1.4s .3s ease-out both" }}>
+            <svg width="50" height="36" viewBox="0 0 50 36">
+              <path d="M1 3 L17 1 L33 3 L49 1 V33 L33 35 L17 33 L1 35 Z" fill="#F5E6C8" stroke="#B08850" strokeWidth="1.5" strokeLinejoin="round" />
+              <path d="M17 1 V33 M33 3 V35" stroke="#B08850" strokeWidth="1" />
+              <path d="M6 28 Q14 14 24 22 T42 10" stroke="#E53935" strokeWidth="1.6" strokeDasharray="3 2" fill="none" />
+              <path d="M42 4 C45 4 46.5 6 46.5 8 C46.5 11 42 15 42 15 C42 15 37.5 11 37.5 8 C37.5 6 39 4 42 4 Z" fill="#E53935" />
+            </svg>
+          </ActFx>
+        </>
+      ),
+    },
+  },
+  /* 計程車星人：招手全員上車／狂按喇叭催上車 */
+  taxi: {
+    conflict: {
+      actor: "ct-tremble .12s linear infinite", partner: "ct-recoil 1.6s ease-in-out both",
+      fx: (A) => (
+        <>
+          <ActFx style={{ left: 108, top: 36, animation: "ct-flash 1.2s ease-in-out infinite both" }}><ActBurst size={50} text="叭!" color={A} /></ActFx>
+          <ActFx style={{ left: 142, top: 86, animation: "ct-flash 1.2s .6s ease-in-out infinite both" }}><ActBurst size={42} text="叭!" color={A} /></ActFx>
+        </>
+      ),
+    },
+    agree: {
+      actor: "ct-hop .7s .9s ease-out 2 both", partner: "ct-hop .7s 1s ease-out 2 both",
+      under: () => (
+        <ActFx style={{ left: 66, top: 84, animation: "ct-drive-in 1s ease-out both" }}>
+          <svg width="170" height="66" viewBox="0 0 170 66">
+            <path d="M10 44 Q12 26 34 24 L52 8 H112 L134 24 Q160 26 162 44 V52 H10 Z" fill="#FFD21F" stroke={INK} strokeWidth="3" strokeLinejoin="round" />
+            <path d="M58 14 H84 V26 H46 Z M90 14 H108 L124 26 H90 Z" fill="#9EDCFF" stroke={INK} strokeWidth="2" />
+            <rect x="70" y="0" width="30" height="10" rx="2" fill="#fff" stroke={INK} strokeWidth="2" />
+            <text x="85" y="8.5" fontSize="7" fontWeight="900" textAnchor="middle" fill={INK}>TAXI</text>
+            <circle cx="42" cy="54" r="10" fill={INK} /><circle cx="42" cy="54" r="4" fill="#ccc" />
+            <circle cx="130" cy="54" r="10" fill={INK} /><circle cx="130" cy="54" r="4" fill="#ccc" />
+          </svg>
+        </ActFx>
+      ),
+      fx: (A) => <ActFx style={{ left: 116, top: 12, animation: "ct-pop .4s 1s ease-out both" }}><ActTag text="上車！" color={A} /></ActFx>,
+    },
+  },
+  /* 保母：強行牽手大合照／原地猛烈揮白旗 */
+  nanny: {
+    conflict: {
+      actor: "ct-tremble .12s linear infinite", partner: "ct-shake .45s ease-in-out infinite",
+      fx: () => (
+        <ActFx style={{ left: 104, top: 10, transformOrigin: "4px 62px", animation: "ct-wave .18s ease-in-out infinite alternate" }}>
+          <svg width="50" height="64" viewBox="0 0 50 64">
+            <path d="M4 4 V62" stroke="#8B5E34" strokeWidth="3" strokeLinecap="round" />
+            <path d="M5 5 Q18 0 28 6 T48 6 V30 Q38 36 28 30 T5 30 Z" fill="#fff" stroke="#94A3B8" strokeWidth="1.5" strokeLinejoin="round" />
+          </svg>
+        </ActFx>
+      ),
+    },
+    agree: {
+      actor: "ct-together-l 1.8s ease-out both", partner: "ct-together-r 1.8s ease-out both",
+      fx: () => (
+        <>
+          <ActFx style={{ left: 116, top: 14, animation: "ct-pop .4s 1.15s ease-out both" }}><ActTag text="Cheese!" color="#3E8EDE" /></ActFx>
+          <ActFx style={{ inset: 0, background: "#fff", animation: "ct-camera-flash 1.8s ease-out both" }}><span /></ActFx>
+        </>
+      ),
+    },
+  },
+};
+
+/* actor／partner 傳人格 key（soldier、capybara⋯） */
+function PersonaActionStage({ actor, partner, mode, caption }) {
+  const spec = (PERSONA_ACTIONS[actor] || PERSONA_ACTIONS.nanny)[mode];
+  const A = PERSONA_IP[actor]?.accent || PERSIMMON;
+  const actorFace = mode === "agree" ? "happy" : "mad";
+  const partnerFace = mode === "agree" ? "happy" : "shock";
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div
+        role="img"
+        aria-label={caption}
+        className="relative overflow-hidden rounded-2xl border-[3px] border-[#1F2350]"
+        style={{
+          width: 300, height: 170,
+          background: mode === "agree" ? "linear-gradient(180deg,#FFF6D6 0%,#E3F5EA 100%)" : "linear-gradient(180deg,#FFE1D3 0%,#FFF6D6 100%)",
+        }}
+      >
+        <div className="absolute inset-x-0 bottom-[14px] h-[2px] bg-[#1F2350]/15" />
+        {spec.under?.(A)}
+        <div className="ct-anim absolute" style={{ left: 28, bottom: 8, width: 100, height: 100, animation: spec.actor, transformOrigin: spec.actorOrigin || "50% 100%" }}>
+          <Mascot persona={actor} size={100} bg={false} float={false} face={actorFace} />
+        </div>
+        <div className="ct-anim absolute" style={{ right: 28, bottom: 8, width: 100, height: 100, animation: spec.partner, transformOrigin: "50% 100%" }}>
+          <Mascot persona={partner} size={100} bg={false} float={false} face={partnerFace} />
+        </div>
+        {spec.fx(A)}
+      </div>
+      {caption && <div className={`text-center text-[13px] font-black ${mode === "agree" ? "text-[#1F7A55]" : "text-[#B8440E]"}`}>{caption}</div>}
+    </div>
+  );
+}
+
+/* 揭曉時依序演：先「最合拍」再「差最多」 */
+const DUEL_MS = 2400;
+function DuelReel({ duels, seed }) {
+  const [i, setI] = useState(0);
+  const d = duels[i];
+  useEffect(() => {
+    if (!duels[i]) return undefined;
+    const s = setTimeout(() => sfx(duels[i].mode === "agree" ? "cheer" : "bonk"), 260);
+    const t = i < duels.length - 1 ? setTimeout(() => setI((x) => x + 1), DUEL_MS) : null;
+    return () => { clearTimeout(s); if (t) clearTimeout(t); };
+  }, [i, duels]);
+  if (!d) return null;
+  const nameOf = (p) => (p.isUser ? "你" : p.name);
+  const actorKey = personaOf(d.a, seed);
+  return (
+    <div className="mt-3 flex flex-col items-center">
+      {duels.length > 1 && (
+        <div className="mb-1.5 flex gap-1">
+          {duels.map((x, k) => (
+            <span key={k} className={`rounded-full border-2 border-[#1F2350] px-2 py-0.5 text-[10px] font-black ${k === i ? (x.mode === "agree" ? "bg-[#6CC08B]" : "bg-[#FF8C6B]") : "bg-white opacity-50"}`}>
+              {x.mode === "agree" ? "最合拍" : "差最多"}
+            </span>
+          ))}
+        </div>
+      )}
+      <PersonaActionStage
+        key={i}
+        actor={actorKey}
+        partner={personaOf(d.b, seed)}
+        mode={d.mode}
+        caption={`${nameOf(d.a)} ${d.mode === "agree" ? "♥" : "✕"} ${nameOf(d.b)}・${PERSONA_IP[actorKey][d.mode]}`}
+      />
+    </div>
+  );
+}
+
+/* ==================================================================
+ * 8.7 視覺小說舞台（取代原本的 RoundCard）
+ * ------------------------------------------------------------------
+ * 每站的節奏：旁白（ROUNDS.scene）→ 趣趣發問（ROUNDS.line）→ 1～2 位隊友搭話（CHATTER）
+ *            → 選項浮出 → 選了之後你的台詞出現在對話框 → 就這麼辦。
+ * 點畫面／按 Enter 推進；LOG 看前面講過什麼、AUTO 自動播、SKIP 直接跳到選項。
+ * 點舞台上的隊友，可以看他是哪一型人格。
+ * ================================================================== */
+const personaOf = (p, seed) => (p?.isUser ? seed : p?.type) || "capybara";
+const GUIDE_TO_PERSONA_FACE = { think: "idle", surprise: "shock", happy: "happy", worry: "worry" };
+let vnAutoPref = false; // AUTO 開了就一路開著，換站不重設
+
+function vnSpeaker(beat) {
+  if (!beat || beat.kind === "narration") return { name: "", color: null };
+  if (beat.kind === "guide") return { name: "趣趣", color: PERSIMMON };
+  return { name: beat.who.name, color: beat.who.color, sub: PERSONAS[beat.who.type]?.short };
+}
+
+function stageSlots(n) {
+  const width = { 1: 62, 2: 52, 3: 46, 4: 38, 5: 33 }[n] || 30;
+  return Array.from({ length: n }, (_, i) => ({ left: 50 + (((i + 0.5) / n) * 100 - 50) * 0.94, width }));
+}
+
+function VibePill({ value, prev }) {
+  const has = typeof value === "number";
+  const delta = has && typeof prev === "number" ? value - prev : 0;
+  const col = !has ? "#CBD5E1" : value >= 70 ? "#6CC08B" : value >= 45 ? "#FFC93C" : "#FF8C6B";
+  return (
+    <div className="flex items-center gap-1.5 rounded-full border-[3px] border-[#1F2350] bg-white/90 py-0.5 pl-0.5 pr-2.5 shadow-[3px_3px_0_#1F2350] backdrop-blur-sm" aria-label={has ? `團隊默契 ${value}` : "團隊默契：答完第一站才會出現"}>
+      <span className="grid h-8 w-8 place-items-center rounded-full border-2 border-[#1F2350]" style={{ background: `conic-gradient(${col} ${has ? value * 3.6 : 0}deg, #F1E6D8 0)` }}>
+        <span className="grid h-5 w-5 place-items-center rounded-full bg-white"><Heart size={11} strokeWidth={3} fill={col} /></span>
+      </span>
+      <span className="leading-none">
+        <span className="block text-[9px] font-black opacity-55">默契</span>
+        <span className="tm-num text-[15px] font-black">{has ? <CountUp key={value} to={value} duration={0.7} /> : "—"}</span>
+      </span>
+      <AnimatePresence>
+        {delta !== 0 && (
+          <motion.span
+            key={`${value}-${delta}`}
+            initial={{ opacity: 0, y: 6, scale: 0.8 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0 }}
+            className={`tm-num text-[11px] font-black ${delta > 0 ? "text-[#1F7A55]" : "text-[#B8440E]"}`}
+          >
+            {delta > 0 ? `▲${delta}` : `▼${-delta}`}
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function VNStage({ roundIdx, players, profile, onSubmit, ready = true, vibe, vibePrev, onOpenMap, log = [], onLog }) {
   const round = ROUNDS[roundIdx];
-  const mocks = useMemo(() => players.filter((p) => !p.isUser), [players]);
+  const node = MAP_NODES[round.node];
+  const me = players.find((p) => p.isUser);
+  const mates = useMemo(() => players.filter((p) => !p.isUser), [players]);
+  const seed = profile.seedPersona;
+
+  const beats = useMemo(() => {
+    const list = [
+      { kind: "narration", text: round.scene },
+      { kind: "guide", text: round.line },
+    ];
+    // 每站換不同的隊友搭話，4 站下來大家都有台詞
+    const talkers = [];
+    for (let k = 0; k < Math.min(2, mates.length); k += 1) {
+      const m = mates[(roundIdx * 2 + k) % mates.length];
+      if (!talkers.includes(m)) talkers.push(m);
+    }
+    talkers.forEach((m) => {
+      const text = CHATTER[roundIdx]?.[m.type];
+      if (text) list.push({ kind: "mate", who: m, text });
+    });
+    return list;
+  }, [round, mates, roundIdx]);
+
+  const [bi, setBi] = useState(0);
+  const [typed, setTyped] = useState(false);
+  const [mode, setMode] = useState("talk"); // talk 劇情中／choose 選答案
+  const [auto, setAuto] = useState(vnAutoPref);
   const [sel, setSel] = useState(null);
   const [custom, setCustom] = useState("");
   const [answered, setAnswered] = useState([]);
-  const [typed, setTyped] = useState(false);
-  const [bubble, setBubble] = useState(null); // 隊友的碎念
+  const [peek, setPeek] = useState(null);
+  const [logOpen, setLogOpen] = useState(false);
+  const [chapter, setChapter] = useState(false);
+  const [sent, setSent] = useState(false);
   const inputRef = useRef(null);
+  const logEndRef = useRef(null);
 
-  // 隊友陸續作答（盲選：只看得到「已作答」）
-  useEffect(() => {
-    const timers = mocks.map((m, i) => setTimeout(() => setAnswered((a) => [...a, m.id]), 1200 + i * 900 + Math.random() * 900));
-    return () => timers.forEach(clearTimeout);
-  }, [mocks]);
+  const beat = beats[bi];
+  const beatId = `vn-r${roundIdx}-b${bi}`;
 
-  // 趣趣講完之後，有台詞的隊友會冒一句出來。台詞直接用 MOCK_POOL 既有的 dLines。
+  // 章節標題：轉場拉開之後浮出來一下
   useEffect(() => {
-    if (!typed) return undefined;
-    const speakers = mocks.filter((m) => m.dLines?.[roundIdx]);
-    if (!speakers.length) return undefined;
-    const timers = [];
-    speakers.forEach((m, i) => {
-      timers.push(setTimeout(() => setBubble({ by: m, text: m.dLines[roundIdx] }), 1400 + i * 3600));
-      timers.push(setTimeout(() => setBubble(null), 1400 + i * 3600 + 3000));
+    if (!ready) return undefined;
+    setChapter(true);
+    const t = setTimeout(() => setChapter(false), 2200);
+    return () => clearTimeout(t);
+  }, [ready]);
+
+  // 講過的話都記進 LOG
+  useEffect(() => {
+    if (!ready || mode !== "talk" || !beat) return;
+    onLog?.({ id: beatId, ...vnSpeaker(beat), text: beat.text });
+  }, [ready, mode, beatId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const goChoose = useCallback(() => {
+    beats.forEach((b, i) => {
+      const id = `vn-r${roundIdx}-b${i}`;
+      typedOnce.add(id);
+      onLog?.({ id, ...vnSpeaker(b), text: b.text });
     });
+    setTyped(true);
+    setMode("choose");
+    sfx("pop");
+  }, [beats, roundIdx, onLog]);
+
+  const advance = useCallback(() => {
+    if (!ready || mode !== "talk") return;
+    if (!typed) {
+      typedOnce.add(beatId);
+      setTyped(true);
+      return;
+    }
+    if (bi < beats.length - 1) {
+      sfx("tap");
+      setTyped(false);
+      setBi((i) => i + 1);
+    } else {
+      goChoose();
+    }
+  }, [ready, mode, typed, beatId, bi, beats.length, goChoose]);
+
+  useEffect(() => {
+    if (!auto || !typed || mode !== "talk" || !ready || logOpen) return undefined;
+    const t = setTimeout(advance, 1600);
+    return () => clearTimeout(t);
+  }, [auto, typed, mode, ready, logOpen, advance]);
+
+  // 選項出現之後，隊友才開始陸續作答（盲選：只看得到「選好了」）
+  useEffect(() => {
+    if (mode !== "choose") return undefined;
+    const timers = mates.map((m, i) => setTimeout(() => setAnswered((a) => [...a, m.id]), 900 + i * 800 + Math.random() * 700));
     return () => timers.forEach(clearTimeout);
-  }, [typed, mocks, roundIdx]);
+  }, [mode, mates]);
+
+  useEffect(() => {
+    if (!peek) return undefined;
+    const t = setTimeout(() => setPeek(null), 4000);
+    return () => clearTimeout(t);
+  }, [peek]);
+
+  useEffect(() => {
+    if (logOpen) logEndRef.current?.scrollIntoView({ block: "end" });
+  }, [logOpen]);
 
   const valid = sel === "D" ? custom.trim().length > 0 : Boolean(sel);
   const netWarn = profile.network !== "esim" && round.options[sel]?.needNet;
   const picked = sel && sel !== "D" ? round.options[sel] : null;
 
   const submit = () => {
-    if (!valid) return;
+    if (!valid || sent) return;
+    setSent(true);
     const mine = { choice: sel, custom: sel === "D" ? custom.trim() : "" };
     const results = players.map((p) => {
       const a = p.isUser ? mine : pickMockAnswer(p, roundIdx);
       return { player: p, choice: a.choice, custom: a.custom || "", hits: a.choice === "D" ? classifyCustom(a.custom) : [] };
     });
+    onLog?.({ id: `vn-r${roundIdx}-me`, name: me?.name || "你", color: me?.color, text: sel === "D" ? custom.trim() : picked.text });
     onSubmit(results, { needNet: Boolean(round.options[sel]?.needNet) });
   };
 
+  const pickOption = (k) => {
+    sfx("select");
+    setSel(k);
+    if (k === "D") setTimeout(() => inputRef.current?.focus(), 80);
+  };
+
+  const onKey = (e) => {
+    if (e.target.tagName === "INPUT") return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (mode === "talk") advance();
+    }
+  };
+
+  // 舞台上每個人的表情
+  const speakingId = mode === "talk" && beat?.kind === "mate" ? beat.who.id : null;
+  const faceFor = (p) => {
+    if (mode === "talk") {
+      if (speakingId === p.id) return typed ? "happy" : "talk";
+      if (beat?.kind === "guide") return GUIDE_TO_PERSONA_FACE[round.face] || "idle";
+      return "idle";
+    }
+    return answered.includes(p.id) ? "happy" : "idle";
+  };
+
+  // 對話框的名牌與頭像
+  let plate = null;
+  let portrait = null;
+  if (mode === "talk") {
+    const sp = vnSpeaker(beat);
+    if (sp.name) plate = sp;
+    if (beat?.kind === "guide") portrait = { persona: null, face: typed ? round.face : "talk", bg: "#FFE0B8" };
+  } else if (sel) {
+    plate = { name: me?.name || "你", color: me?.color || PERSIMMON, sub: PERSONAS[seed]?.short };
+    portrait = { persona: seed, face: "happy", bg: PERSONAS[seed]?.soft || "#FFE0B8" };
+  } else {
+    plate = { name: "趣趣", color: PERSIMMON };
+    portrait = { persona: null, face: round.face, bg: "#FFE0B8" };
+  }
+
+  const slots = stageSlots(mates.length);
+  const narration = mode === "talk" && beat?.kind === "narration";
+
   return (
-    <div className="space-y-3">
-      <div className="tm-noscroll flex gap-2 overflow-x-auto pb-1">
-        {players.map((p) => {
-          const done = p.isUser ? valid : answered.includes(p.id);
+    <div
+      className="relative h-[calc(100dvh-84px)] min-h-[560px] w-full select-none overflow-hidden rounded-[26px] border-[3px] border-[#1F2350] bg-[#1F2350] shadow-[5px_5px_0_#1F2350] outline-none md:aspect-video md:h-auto md:min-h-0"
+      onClick={() => { setPeek(null); if (mode === "talk") advance(); }}
+      onKeyDown={onKey}
+      tabIndex={0}
+      role="group"
+      aria-label={`第 ${roundIdx + 1} 站：${node.name}`}
+    >
+      <SceneBackdrop kind={round.bg} />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[#1F2350]/55 to-transparent" />
+
+      {/* ---- 上方 HUD：站點牌 + 默契 + 地圖 ---- */}
+      <div className="absolute inset-x-2.5 top-2.5 z-30 flex items-start justify-between gap-2 md:inset-x-4 md:top-4">
+        <div className="flex min-w-0 items-center gap-2 rounded-2xl border-[3px] border-[#1F2350] bg-white/90 py-1 pl-1 pr-3 shadow-[3px_3px_0_#1F2350] backdrop-blur-sm">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 border-[#1F2350] bg-[#FFC93C] text-xl">{node.emoji}</span>
+          <span className="min-w-0 leading-tight">
+            <span className="tm-num block truncate text-[10px] font-black opacity-60">第 {roundIdx + 1} 站｜{round.clock}｜{node.temp}</span>
+            <span className="tm-display block truncate text-[15px]">{node.name}</span>
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <VibePill value={vibe} prev={vibePrev} />
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); sfx("tap"); onOpenMap?.(); }}
+            aria-label="打開大地圖"
+            className="grid h-10 w-10 place-items-center rounded-full border-[3px] border-[#1F2350] bg-white/90 text-lg shadow-[3px_3px_0_#1F2350]"
+          >
+            🗺️
+          </button>
+        </div>
+      </div>
+
+      {/* ---- 章節標題 ---- */}
+      <AnimatePresence>
+        {chapter && (
+          <motion.div
+            className="pointer-events-none absolute inset-x-0 top-[78px] z-20 flex justify-center md:top-[96px]"
+            initial={{ opacity: 0, y: -12, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.35 }}
+          >
+            <div className="rounded-2xl border-[3px] border-[#1F2350] bg-[#1F2350]/85 px-5 py-2 text-center text-white shadow-[4px_4px_0_#FF6B35] backdrop-blur-sm">
+              <div className="text-[10px] font-black tracking-[0.3em] text-[#FFC93C]">STAGE {roundIdx + 1}</div>
+              <div className="tm-display text-[22px] leading-tight">{round.title}</div>
+              <div className="text-[11px] font-bold opacity-70">{round.subtitle}</div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ---- 立繪：隊友站在場景裡 ---- */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-[146px] top-[30%] z-10 md:bottom-[92px] md:top-[22%]">
+        {mates.map((p, i) => {
+          const slot = slots[i];
+          const speaking = speakingId === p.id;
+          const dim = speakingId && !speaking;
+          const k = personaOf(p, seed);
+          const P = PERSONAS[k];
           return (
-            <div key={p.id} className="flex min-w-[54px] flex-col items-center gap-1">
-              <div className="relative">
-                <Avatar p={p} size={38} />
-                {done && (
-                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full border-2 border-[#1F2350] bg-[#6CC08B]">
-                    <Check size={11} strokeWidth={3.5} />
-                  </motion.span>
+            <motion.div
+              key={p.id}
+              className="absolute bottom-0"
+              style={{ left: `${slot.left}%`, width: `${slot.width}%`, maxWidth: 250, x: "-50%", zIndex: speaking ? 5 : 1 }}
+              initial={{ y: 60, opacity: 0 }}
+              animate={{ y: speaking ? -10 : 0, opacity: 1, scale: speaking ? 1.06 : 1 }}
+              transition={{ type: "spring", stiffness: 220, damping: 20, delay: speaking ? 0 : 0.15 + i * 0.08 }}
+            >
+              <button
+                type="button"
+                className="pointer-events-auto block w-full"
+                aria-label={`${p.name}：${P.name}`}
+                onClick={(e) => { e.stopPropagation(); sfx("pop"); setPeek((x) => (x === p.id ? null : p.id)); }}
+              >
+                <div className="aspect-square w-full" style={{ filter: dim ? "brightness(.68) saturate(.8)" : narration ? "brightness(.88)" : "none", transition: "filter .25s" }}>
+                  <Mascot persona={k} size="100%" bg={false} face={faceFor(p)} delay={0.25 + i * 0.08} />
+                </div>
+              </button>
+              {/* 名牌／作答狀態 */}
+              <div className="absolute left-1/2 top-[2%] -translate-x-1/2">
+                {mode === "choose" ? (
+                  answered.includes(p.id) ? (
+                    <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} className="flex items-center gap-1 whitespace-nowrap rounded-full border-2 border-[#1F2350] bg-[#6CC08B] px-2 py-0.5 text-[10px] font-black">
+                      <Check size={10} strokeWidth={4} /> {p.name} 選好了
+                    </motion.span>
+                  ) : (
+                    <span className="flex items-center gap-1 whitespace-nowrap rounded-full border-2 border-[#1F2350] bg-white px-2 py-0.5 text-[10px] font-black">
+                      {p.name} <ThinkingDots small />
+                    </span>
+                  )
+                ) : (
+                  <span
+                    className={`whitespace-nowrap rounded-full border-2 border-[#1F2350] px-2 py-0.5 text-[10px] font-black transition-opacity ${speaking ? "text-white" : "bg-white/85 opacity-80"}`}
+                    style={speaking ? { background: p.color } : undefined}
+                  >
+                    {p.name}
+                  </span>
                 )}
               </div>
-              <span className="max-w-[60px] truncate text-[10px] font-bold">{p.isUser ? "你" : p.name}</span>
-            </div>
+              {/* 點角色：看他是哪一型 */}
+              <AnimatePresence>
+                {peek === p.id && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className="pointer-events-auto absolute bottom-[86%] left-1/2 z-40 w-[200px] -translate-x-1/2 rounded-2xl border-[3px] border-[#1F2350] bg-white p-2.5 text-left shadow-[4px_4px_0_#1F2350]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="text-[10px] font-black opacity-55">{p.name} 是</div>
+                    <div className="tm-display text-[16px] leading-tight" style={{ color: P.color }}>{P.emoji} {P.name}</div>
+                    <p className="mt-1 text-[11.5px] leading-snug">「{P.quote}」</p>
+                    <div className="mt-1.5 flex flex-wrap gap-1 text-[10px] font-bold">
+                      <span className="rounded-md bg-[#E3F5EA] px-1.5 py-0.5">🤝 {PERSONA_IP[k].agree}</span>
+                      <span className="rounded-md bg-[#FFE1D3] px-1.5 py-0.5">💥 {PERSONA_IP[k].conflict}</span>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
           );
         })}
       </div>
 
-      {/* ---- 場景條：站別與時間 ---- */}
-      <div className="flex items-center gap-2 rounded-2xl border-[3px] border-[#1F2350] bg-[#FFF3A6] px-3 py-1.5 text-xs font-bold shadow-[3px_3px_0_#1F2350]">
-        <span>第 {roundIdx + 1} 站</span>
-        <span>{round.clock}</span>
-        <span className="ml-auto">{MAP_NODES[round.node].temp}</span>
-      </div>
-
-      {/* ---- 趣趣立繪 + 隊友碎念 ---- */}
-      <div className="relative -my-2 flex justify-center">
-        <motion.div key={roundIdx} initial={{ scale: 0.7, y: 20, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} transition={{ type: "spring", stiffness: 220, damping: 18 }}>
-          <Mascot size={118} bg={false} face={typed ? (picked ? "happy" : round.face) : "talk"} />
-        </motion.div>
-        <AnimatePresence>
-          {bubble && (
-            <motion.div
-              key={bubble.by.id + bubble.text}
-              initial={{ opacity: 0, y: 12, scale: 0.85 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ type: "spring", stiffness: 320, damping: 22 }}
-              className="absolute right-0 top-2 flex max-w-[58%] items-center gap-1.5 rounded-2xl rounded-br-sm border-[3px] border-[#1F2350] bg-white px-2.5 py-1.5 shadow-[3px_3px_0_#1F2350]"
-            >
-              <Avatar p={bubble.by} size={22} />
-              <span className="text-[11px] font-bold leading-snug">{bubble.text}</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* ---- 對話框：點一下跳過逐字 ---- */}
-      <button
-        type="button"
-        onClick={() => { if (ready && !typed) { typedOnce.add(`r${roundIdx}`); setTyped(true); } }}
-        className="relative block w-full rounded-3xl border-[3px] border-[#1F2350] bg-white p-4 text-left shadow-[5px_5px_0_#1F2350]"
-      >
-        <span className="absolute -top-3 left-4 rounded-lg border-[3px] border-[#1F2350] bg-[#FF6B35] px-2 py-0.5 text-xs font-black text-white">趣趣</span>
-        <p className="mt-1 text-[16px] leading-relaxed">
-          <Typewriter key={`r${roundIdx}`} id={`r${roundIdx}`} text={round.line} start={ready} onDone={() => setTyped(true)} />
-        </p>
-        {ready && !typed && <span className="mt-1 block text-right text-[10px] font-bold opacity-40">點一下全部顯示</span>}
-        {typed && (
-          <motion.span
-            className="absolute bottom-2 right-4 text-[#FF6B35]"
-            animate={{ y: [0, 4, 0] }}
-            transition={{ repeat: Infinity, duration: 1.1 }}
-          >
-            ▼
-          </motion.span>
-        )}
-      </button>
-
-      {/* ---- 選項：短標，選了才展開完整描述 ---- */}
+      {/* ---- 選項：浮在畫面上 ---- */}
       <AnimatePresence>
-        {typed && (
+        {mode === "choose" && (
+          <motion.div key="scrim" className="pointer-events-none absolute inset-0 z-20 bg-[#1F2350]/30" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+        )}
+        {mode === "choose" && (
           <motion.div
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.28 }}
-            className="space-y-2"
+            key="choices"
+            className="absolute inset-x-3 top-[74px] z-30 flex flex-col gap-2 md:inset-x-auto md:right-8 md:top-[20%] md:w-[44%]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
           >
             {["A", "B", "C"].map((k, i) => {
               const opt = round.options[k];
@@ -2657,99 +3939,165 @@ function RoundCard({ roundIdx, players, profile, onSubmit, ready = true }) {
                 <motion.button
                   key={k}
                   type="button"
-                  onClick={() => { sfx("select"); setSel(k); }}
-                  whileTap={{ scale: 0.98 }}
                   aria-pressed={active}
-                  initial={{ opacity: 0, x: -16 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.06 + i * 0.06 }}
-                  className={`flex w-full items-center gap-2.5 rounded-2xl border-[3px] border-[#1F2350] px-3 py-2.5 text-left transition-[background-color,box-shadow] duration-150 ${active ? "bg-[#FFC93C] shadow-[4px_4px_0_#1F2350]" : "bg-white shadow-[2px_2px_0_#1F2350]"}`}
+                  disabled={sent}
+                  onClick={(e) => { e.stopPropagation(); pickOption(k); }}
+                  initial={{ opacity: 0, x: 40 }}
+                  animate={{ opacity: 1, x: 0, scale: active ? 1.02 : 1 }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={{ delay: i * 0.07, type: "spring", stiffness: 300, damping: 22 }}
+                  className={`flex w-full items-center gap-2.5 rounded-full border-[3px] border-[#1F2350] py-2 pl-2 pr-4 text-left backdrop-blur-sm transition-[background-color,box-shadow] ${active ? "bg-[#FFC93C] shadow-[4px_4px_0_#1F2350]" : "bg-white/90 shadow-[2px_2px_0_#1F2350]"}`}
                 >
-                  <span className="text-base font-black" style={{ color: active ? INK : CHOICE_COLOR[k] }}>▸</span>
-                  <span className="flex-1 text-[15px] font-bold leading-snug">{opt.short}</span>
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border-2 border-[#1F2350] text-[12px] font-black text-white" style={{ background: CHOICE_COLOR[k] }}>{k}</span>
+                  <span className="flex-1 text-[15px] font-black leading-snug">{opt.short}</span>
                   {opt.price && <span className="tm-num shrink-0 rounded-md bg-[#FF6B35] px-1.5 py-0.5 text-[10.5px] font-bold text-white">{money(opt.price)}</span>}
                   {active && <Check size={16} strokeWidth={3.5} className="shrink-0" />}
                 </motion.button>
               );
             })}
-
             <motion.button
               type="button"
-              onClick={() => { if (sel !== "D") sfx("select"); setSel("D"); setTimeout(() => inputRef.current?.focus(), 60); }}
-              initial={{ opacity: 0, x: -16 }}
+              aria-pressed={sel === "D"}
+              disabled={sent}
+              onClick={(e) => { e.stopPropagation(); pickOption("D"); }}
+              initial={{ opacity: 0, x: 40 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.24 }}
-              className={`flex w-full items-center gap-2.5 rounded-2xl border-[3px] px-3 py-2.5 text-left ${sel === "D" ? "border-solid border-[#1F2350] bg-[#ECE5FF] shadow-[4px_4px_0_#1F2350]" : "border-dashed border-[#1F2350] bg-white/70"}`}
+              transition={{ delay: 0.21, type: "spring", stiffness: 300, damping: 22 }}
+              className={`flex w-full items-center gap-2.5 rounded-full border-[3px] py-2 pl-2 pr-4 text-left backdrop-blur-sm ${sel === "D" ? "border-solid border-[#1F2350] bg-[#ECE5FF] shadow-[4px_4px_0_#1F2350]" : "border-dashed border-[#1F2350] bg-white/75"}`}
             >
-              <span className="text-base font-black" style={{ color: sel === "D" ? INK : CHOICE_COLOR.D }}>▸</span>
-              <span className="flex-1 text-[15px] font-bold leading-snug">自己說一句（TripMate 會讀）</span>
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border-2 border-[#1F2350] text-[12px] font-black text-white" style={{ background: CHOICE_COLOR.D }}>✎</span>
+              <span className="flex-1 text-[15px] font-black leading-snug">自己說一句（TripMate 會讀）</span>
             </motion.button>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ---- 選中之後：完整描述 / 自訂輸入 ---- */}
-      <AnimatePresence mode="wait">
-        {picked && (
-          <motion.div
-            key={sel}
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="rounded-2xl border-[3px] border-dashed border-[#1F2350] bg-[#FFF8EE] p-3">
-              <div className="mb-1 flex items-center gap-1.5">
-                <Avatar p={players.find((p) => p.isUser)} size={20} />
-                <span className="text-[11px] font-black opacity-60">你說</span>
-              </div>
-              <p className="text-[15px] leading-relaxed">{picked.text}</p>
+      {/* ---- 對話框 ---- */}
+      <div
+        className="absolute inset-x-2.5 bottom-2.5 z-30 md:inset-x-6 md:bottom-5"
+        onClick={(e) => { e.stopPropagation(); setPeek(null); if (mode === "talk") advance(); }}
+      >
+        <AnimatePresence mode="wait">
+          {plate && (
+            <motion.div
+              key={plate.name}
+              initial={{ x: -12, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className={`absolute -top-4 z-10 flex items-baseline gap-1.5 rounded-xl border-[3px] border-[#1F2350] px-3 py-0.5 text-white shadow-[2px_2px_0_#1F2350] ${portrait ? "left-[86px] md:left-[96px]" : "left-3"}`}
+              style={{ background: plate.color }}
+            >
+              <span className="tm-display text-[15px] leading-tight">{plate.name}</span>
+              {plate.sub && <span className="text-[10px] font-bold opacity-85">{plate.sub}</span>}
+            </motion.div>
+          )}
+        </AnimatePresence>
+        {portrait && (
+          <div className="absolute -top-7 left-2 z-10 h-[74px] w-[74px] overflow-hidden rounded-2xl border-[3px] border-[#1F2350] shadow-[3px_3px_0_#1F2350] md:h-[82px] md:w-[82px]" style={{ background: portrait.bg }}>
+            <div className="-ml-[9px] -mt-[2px]">
+              <Mascot persona={portrait.persona} size={94} bg={false} float={false} face={portrait.face} />
             </div>
-          </motion.div>
+          </div>
         )}
-        {sel === "D" && (
-          <motion.div key="custom" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-            <div className="rounded-2xl border-[3px] border-[#1F2350] bg-[#ECE5FF] p-3">
-              <div className="mb-1.5 flex items-center gap-1.5">
-                <Avatar p={players.find((p) => p.isUser)} size={20} />
-                <span className="text-[11px] font-black opacity-60">你說</span>
-              </div>
-              <div className="flex items-center gap-2">
+        <div className={`relative rounded-[22px] border-[3px] border-[#1F2350] bg-white/95 pb-2 pr-4 pt-5 shadow-[4px_4px_0_#1F2350] backdrop-blur md:pr-6 ${portrait ? "pl-[92px] md:pl-[104px]" : "pl-4 md:pl-6"}`}>
+          <div className="min-h-[4.9em] text-[15.5px] leading-relaxed md:min-h-[3.6em] md:text-[17px]">
+            {mode === "talk" && beat && (
+              <p className={narration ? "tm-hand text-[16.5px] text-[#1F2350]/85 md:text-[18px]" : ""}>
+                {typed
+                  ? beat.text
+                  : <Typewriter key={beatId} id={beatId} text={beat.text} start={ready} onDone={() => setTyped(true)} />}
+              </p>
+            )}
+            {mode === "choose" && !sel && <p>{round.line}</p>}
+            {mode === "choose" && picked && (
+              <motion.p key={sel} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>{picked.text}</motion.p>
+            )}
+            {mode === "choose" && sel === "D" && (
+              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <input
                   ref={inputRef}
                   value={custom}
                   maxLength={20}
                   onChange={(e) => setCustom(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
                   placeholder={round.placeholder}
                   aria-label="自訂選項，限 20 字"
                   className="w-full min-w-0 rounded-lg border-2 border-[#1F2350] bg-white px-2.5 py-1.5 text-base outline-none focus:ring-4 focus:ring-[#A98BFF]/50"
                 />
                 <span className="tm-num shrink-0 text-xs font-bold opacity-60">{Array.from(custom).length}/20</span>
               </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            )}
+            {netWarn && (
+              <div className="mt-1.5 flex items-center gap-1 rounded-lg bg-[#FFE1D3] px-2 py-1 text-[11.5px] font-bold text-[#B8440E]">
+                <Signal size={12} className="shrink-0" />
+                這個選項要即時上網，你選的是「{NETWORKS.find((n) => n.key === profile.network)?.name}」⋯⋯
+              </div>
+            )}
+          </div>
 
-      <AnimatePresence>
-        {netWarn && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-            <div className="rounded-2xl border-2 border-dashed border-[#E8453C] bg-[#FFE1D3] p-2.5 text-xs font-bold text-[#B8440E]">
-              <Signal size={13} className="mr-1 inline" />
-              這個選項需要即時上網，而你選的是「{NETWORKS.find((n) => n.key === profile.network)?.name}」⋯⋯
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div
-        className="sticky bottom-0 -mx-4 px-4 pt-5"
-        style={{ background: `linear-gradient(to top, ${PAGE} 72%, ${PAGE}00)`, paddingBottom: "calc(env(safe-area-inset-bottom) + 14px)" }}
-      >
-        <Btn className="w-full" disabled={!valid} onClick={submit}>
-          {valid ? "就這麼辦，看隊友怎麼選" : sel === "D" ? "先說一句你的版本" : "選一個答案"}
-        </Btn>
+          <div className="mt-1 flex items-center gap-1.5">
+            <span className={`min-w-0 truncate whitespace-nowrap text-[10.5px] font-bold opacity-45 ${mode === "choose" && sel ? "hidden sm:inline" : ""}`}>
+              {mode === "talk" ? (typed ? "點一下繼續" : "點一下顯示全文") : sel ? (valid ? "確定的話就按右邊" : "先說一句你的版本") : "從上面選一個"}
+            </span>
+            <span className="ml-auto flex shrink-0 items-center gap-1">
+              {[
+                { key: "log", label: "LOG", on: logOpen, act: () => setLogOpen(true) },
+                { key: "auto", label: "AUTO", on: auto, act: () => setAuto((a) => { vnAutoPref = !a; return !a; }) },
+                ...(mode === "talk" ? [{ key: "skip", label: "SKIP", on: false, act: goChoose }] : []),
+              ].map((b) => (
+                <button
+                  key={b.key}
+                  type="button"
+                  aria-pressed={b.key === "auto" ? auto : undefined}
+                  onClick={(e) => { e.stopPropagation(); sfx("tap"); b.act(); }}
+                  className={`rounded-full border-2 border-[#1F2350] px-2 py-0.5 text-[10px] font-black tracking-wider ${b.on ? "bg-[#1F2350] text-white" : "bg-white"}`}
+                >
+                  {b.label}
+                </button>
+              ))}
+              {mode === "choose" && sel && (
+                <Btn size="sm" className="ml-1 shrink-0 whitespace-nowrap" disabled={!valid || sent} onClick={(e) => { e.stopPropagation(); submit(); }}>
+                  就這麼辦 ▶
+                </Btn>
+              )}
+            </span>
+            {mode === "talk" && typed && (
+              <motion.span className="text-[#FF6B35]" animate={{ y: [0, 4, 0] }} transition={{ repeat: Infinity, duration: 1.1 }} aria-hidden="true">▼</motion.span>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* ---- LOG ---- */}
+      <AnimatePresence>
+        {logOpen && (
+          <motion.div
+            className="absolute inset-0 z-50 flex flex-col bg-[#1F2350]/93 p-4 text-white backdrop-blur md:p-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2">
+              <span className="tm-display text-xl">對話紀錄</span>
+              <span className="text-[11px] font-bold opacity-50">{log.length} 則</span>
+              <button type="button" onClick={() => { sfx("back"); setLogOpen(false); }} aria-label="關閉對話紀錄" className="ml-auto grid h-9 w-9 place-items-center rounded-full border-2 border-white/60">
+                <X size={16} strokeWidth={3} />
+              </button>
+            </div>
+            <div className="tm-noscroll mt-3 flex-1 space-y-3 overflow-y-auto pr-1">
+              {log.map((e) => (
+                <div key={e.id}>
+                  <span className="inline-block rounded-md px-1.5 py-0.5 text-[10.5px] font-black" style={{ background: e.color || "#FFFFFF26" }}>{e.name || "旁白"}</span>
+                  <p className={`mt-1 text-[14px] leading-relaxed opacity-90 ${e.name ? "" : "tm-hand"}`}>{e.text}</p>
+                </div>
+              ))}
+              <div ref={logEndRef} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -2834,6 +4182,10 @@ function PersonaCard({ member, seedPersona }) {
         <h2 className="tm-display text-[30px] leading-tight" style={{ color: P.color }}>{P.name}</h2>
         <div className="text-sm font-bold opacity-70">稱號：{P.title}</div>
         <div className="mt-2 flex flex-wrap justify-center gap-1.5">{P.gear.map((g) => <Chip key={g}>{g}</Chip>)}</div>
+        <div className="mt-1.5 flex flex-wrap justify-center gap-1.5">
+          <Chip className="!bg-[#E3F5EA]">🤝 共識技：{PERSONA_IP[member.persona].agree}</Chip>
+          <Chip className="!bg-[#FFE1D3]">💥 衝突技：{PERSONA_IP[member.persona].conflict}</Chip>
+        </div>
       </div>
       <div className="space-y-3 p-4">
         {changed && (
@@ -5789,6 +7141,7 @@ export default function App() {
   const [opening, setOpening] = useState(null);
   const [banner, setBanner] = useState(null);
   const [mapOpen, setMapOpen] = useState(false);
+  const [vnLog, setVnLog] = useState([]); // 視覺小說的 LOG：整趟講過的話
   const [sfxOn, setSfxOn] = useState(true);
   const [bgmOn, setBgmOn] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
@@ -5828,6 +7181,10 @@ export default function App() {
     AudioEngine.setMood(phase === "GAME" ? "game" : "calm");
   }, [phase]);
 
+  const pushLog = useCallback((entry) => {
+    setVnLog((l) => (l.some((x) => x.id === entry.id) ? l : [...l, entry]));
+  }, []);
+
   const pushFeed = useCallback((by, text) => {
     setFeed((f) => [{ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, by, text, at: Date.now() }, ...f].slice(0, 30));
   }, []);
@@ -5840,6 +7197,7 @@ export default function App() {
     setBoard([]);
     setFeed([]);
     setLocked(null);
+    setVnLog([]);
     setBanner(`出發：${MAP_NODES[0].name}，當前氣溫 ${MAP_NODES[0].temp}`);
     setPhase("GAME");
     // 開場動畫蓋在遊戲畫面上，播完才露出第 1 題
@@ -5926,6 +7284,7 @@ export default function App() {
     setBoard([]);
     setFeed([]);
     setLocked(null);
+    setVnLog([]);
     pendingRef.current = null;
   }, []);
 
@@ -6139,7 +7498,7 @@ export default function App() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <style>{GLOBAL_CSS}</style>
+      <style>{GLOBAL_CSS + VN_CSS}</style>
       <div
         className="tm-root min-h-[100dvh] text-[#1F2350]"
         style={{
@@ -6149,7 +7508,7 @@ export default function App() {
           paddingTop: "env(safe-area-inset-top)",
         }}
       >
-        <div className={`mx-auto w-full px-4 ${wide ? "max-w-5xl" : "max-w-md"}`}>
+        <div className={`mx-auto w-full px-4 ${wide || phase === "GAME" ? "max-w-5xl" : "max-w-md"}`}>
           {/* 手機只有 390px 寬，所以整列強制不換行，次要資訊在窄螢幕先收起來 */}
           <header className="flex flex-nowrap items-center justify-between gap-2 py-3">
             <div className="flex shrink-0 items-center gap-2">
@@ -6203,24 +7562,21 @@ export default function App() {
           {phase === "SETUP" && <SetupScreen onStart={start} toast={toast} />}
 
           {phase === "GAME" && session && (
-            <div className="space-y-3 pb-4">
-              <AnimatePresence mode="wait" initial={false}>
-                {mapOpen ? (
-                  <motion.div key="map" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                    <GameMap nodeIdx={nodeIdx} players={session.players} banner={banner} onClose={() => setMapOpen(false)} />
-                  </motion.div>
-                ) : (
-                  <motion.div key="strip" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <MapStrip nodeIdx={nodeIdx} players={session.players} onOpen={() => setMapOpen(true)} />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              <VibeBar value={vibeNow} prev={vibePrev} />
-              <AnimatePresence mode="wait">
-                <motion.div key={roundIdx} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -18 }} transition={{ duration: 0.25 }}>
-                  <RoundCard roundIdx={roundIdx} players={session.players} profile={session} onSubmit={handleSubmit} ready={!opening && !transition} />
-                </motion.div>
-              </AnimatePresence>
+            <div className="pb-4">
+              {/* 換站時整個舞台換掉（轉場動畫蓋住的那 0.6 秒），背景、立繪、對白一起重來 */}
+              <VNStage
+                key={roundIdx}
+                roundIdx={roundIdx}
+                players={session.players}
+                profile={session}
+                onSubmit={handleSubmit}
+                ready={!opening && !transition}
+                vibe={vibeNow}
+                vibePrev={vibePrev}
+                onOpenMap={() => setMapOpen(true)}
+                log={vnLog}
+                onLog={pushLog}
+              />
             </div>
           )}
 
@@ -6253,8 +7609,26 @@ export default function App() {
 
         <AnimatePresence>
           {modal?.type === "lag" && <LagModal key="lag" network={session.network} onDone={afterLag} />}
-          {modal?.type === "hint" && <HintModal key="hint" roundIdx={roundIdx} results={modal.results} hint={modal.hint} onClose={closeHint} />}
+          {modal?.type === "hint" && <HintModal key="hint" roundIdx={roundIdx} results={modal.results} hint={modal.hint} seed={session.seedPersona} onClose={closeHint} />}
           {modal?.type === "network" && <NetworkAsk key="network" days={session.days || 5} onPick={pickNetwork} />}
+        </AnimatePresence>
+
+        {/* 大地圖：從舞台右上角打開 */}
+        <AnimatePresence>
+          {phase === "GAME" && session && mapOpen && (
+            <motion.div
+              key="map"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[55] grid place-items-center bg-[#1F2350]/70 px-4"
+              onClick={() => setMapOpen(false)}
+            >
+              <motion.div initial={{ scale: 0.9, y: 16 }} animate={{ scale: 1, y: 0 }} className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                <GameMap nodeIdx={nodeIdx} players={session.players} banner={banner} onClose={() => setMapOpen(false)} />
+              </motion.div>
+            </motion.div>
+          )}
         </AnimatePresence>
 
         <AnimatePresence>

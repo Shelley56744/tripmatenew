@@ -1,0 +1,32 @@
+{
+ "_note": "測試用：照 Places API (New) 回傳格式手寫的範例，不是真實資料",
+ "source": "Google Places API (New) Text Search", "queries_done": [], "requests": 3,
+ "places": {
+  "TEST_PLACE_1": {
+   "id": "TEST_PLACE_1", "displayName": {"text": "串かつだるま 新世界総本店", "languageCode": "ja"},
+   "location": {"latitude": 34.6522, "longitude": 135.5059}, "rating": 4.2, "userRatingCount": 12000,
+   "priceLevel": "PRICE_LEVEL_INEXPENSIVE", "types": ["japanese_restaurant", "restaurant", "food"], "primaryType": "japanese_restaurant",
+   "googleMapsUri": "https://maps.google.com/?cid=1", "businessStatus": "OPERATIONAL",
+   "reviews": [
+    {"rating": 4, "text": {"text": "很好吃，但是排隊排了四十分鐘。店內很擠。", "languageCode": "zh-TW"}, "publishTime": "2025-08-01T10:00:00.123456789Z", "authorAttribution": {"displayName": "測試評論者"}}
+   ],
+   "_queries": ["新世界/通天閣|排隊名店/街頭美食"], "_fetched_at": "2026-10-07T12:00:00+00:00"
+  },
+  "TEST_PLACE_2": {
+   "id": "TEST_PLACE_2", "displayName": {"text": "測試喫茶 中崎町", "languageCode": "zh-TW"},
+   "location": {"latitude": 34.7068, "longitude": 135.5078}, "rating": 4.6, "userRatingCount": 320,
+   "priceRange": {"startPrice": {"currencyCode": "JPY", "units": "1000"}, "endPrice": {"currencyCode": "JPY", "units": "2000"}},
+   "types": ["cafe", "food"], "primaryType": "cafe", "businessStatus": "OPERATIONAL",
+   "reviews": [{"rating": 5, "text": {"text": "巷弄裡的老宅咖啡，很適合放空發呆。", "languageCode": "zh-TW"}, "publishTime": "2025-06-01T00:00:00Z", "authorAttribution": {"displayName": "測試二號"}}],
+   "_queries": ["中崎町/天神橋|隱密老宅咖啡"], "_fetched_at": "2026-10-07T12:00:00+00:00"
+  },
+  "TEST_PLACE_3": {
+   "id": "TEST_PLACE_3", "displayName": {"text": "測試飯店 難波"}, "location": {"latitude": 34.667, "longitude": 135.50},
+   "rating": 4.0, "userRatingCount": 900, "types": ["lodging", "hotel"], "primaryType": "hotel", "_queries": []
+  },
+  "TEST_PLACE_4": {
+   "id": "TEST_PLACE_4", "displayName": {"text": "已歇業測試店"}, "location": {"latitude": 34.67, "longitude": 135.50},
+   "rating": 3.9, "userRatingCount": 800, "types": ["bar"], "primaryType": "bar", "businessStatus": "CLOSED_PERMANENTLY", "_queries": []
+  }
+ }
+}

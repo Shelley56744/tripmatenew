@@ -1,7 +1,7 @@
-# 去趣 TripMate｜排行程 RPG Prototype（v7.7）
+# 去趣 TripMate｜排行程 RPG Prototype（v8）
 
 SETUP（人格快測 → 預算／網路 → 建房或加入，房主可設地點、日期、天數）
-→ GAME（大地圖 + 4 站 + 大提示）→ SUMMARY（人格結算 + 雙欄常駐 eSIM 導購）
+→ GAME（視覺小說式 4 站答題 + 大提示）→ SUMMARY（人格結算 + 雙欄常駐 eSIM 導購）
 → PLAN（AI 滑卡推薦 + 後台交通計算 + 共享行程看板）。
 全部邏輯與畫面都在單一檔案 `src/App.jsx`。
 
@@ -9,6 +9,45 @@ SETUP（人格快測 → 預算／網路 → 建房或加入，房主可設地�
 npm install
 npm run dev
 ```
+
+## 真實資料：`data-pipeline/`
+
+規格書模組四原本用亂數產生的大阪景點資料，改由 `data-pipeline/` 實際抓取：
+Google Maps（官方 Places API）＋ PTT Japan_Travel（爬蟲）＋ Threads（官方 API，選用）＋ Dcard／小紅書（人工收集表），
+整合成同樣 16 個欄位的 `osaka_travel_dataset.csv`，每筆都附來源網址。步驟見 [`data-pipeline/README.md`](data-pipeline/README.md)。
+
+## v8 新增：答題改成視覺小說 + 人格角色造型
+
+**答題畫面（`VNStage`，取代原本的 `RoundCard`）**：
+
+- 每站一張場景背景（`SceneBackdrop`，純 SVG）：飯店晨窗（窗外下雪）、樂園入口（人潮都在滑手機）、
+  道頓堀雨夜（霓虹會閃、運河有倒影）、心齋橋商店街（「營業至 20:30」吊牌）
+- 隊友用人格角色站在場景裡；誰在講話誰往前站、其他人變暗；點角色可以看他是哪一型人格與招牌動作
+- 劇情節奏：旁白（`ROUNDS.scene`）→ 趣趣發問（`ROUNDS.line`）→ 1～2 位隊友搭話（`CHATTER`）→ 選項浮出
+- 對話框有名牌與頭像，點畫面或按 Enter 推進；LOG（對話紀錄）／AUTO（自動播）／SKIP（直接跳到選項）
+- 選了答案，你的台詞會出現在對話框，按「就這麼辦」才送出；選項邏輯、計分、網路卡頓事件都沒變
+- 站點、默契值、大地圖收進舞台上方的 HUD
+
+**人格角色造型（`PERSONA_IP` + `GEAR` + `PersonaFace`）**：照 `chictripPersonas.ts` 的規格，
+在原本的趣趣行李箱身體上換眼型（eyeShape）、配件（accessory）、點綴色（accentColor）。
+人格判定邏輯完全沒動。對照如下（計程車星人在那份沒有，用同一套規則補上；味蕾老饕這個專案沒有對應人格）：
+
+| 人格 | Gemini roleId | 共識動作 | 衝突動作 |
+| --- | --- | --- | --- |
+| 行程特種兵 | speed_runner | 超響亮擊掌 | 急速滑步離場 |
+| 隨性慢活水豚 | chill_capybara | 一起吐放空泡泡 | 化成一灘黃水 |
+| 移動打卡機 | photo_hunter | 取景框框比心 | 鏡頭戳人 |
+| 暴走購物狂 | shopping_spree | 提袋開箱大歡呼 | 購物紙袋無情衝撞 |
+| 旅費精算師 | cfo_budget | 蓋章批准報銷 | 甩出厚帳單打臉 |
+| 靈魂探險家 | secret_spotter | 悄悄遞出私房地圖 | 拉下鐵捲門自閉 |
+| 尊榮計程車星人 | （新增）taxi_vip | 招手全員上車 | 狂按喇叭催上車 |
+| 全能旅行保母 | peace_maker | 強行牽手大合照 | 原地猛烈揮白旗 |
+
+**揭曉時演招牌動作**：`buildHint()` 多回傳 `duels`——先演「最合拍」的一對（優先挑跟你選一樣的隊友），
+再演「差最多」的一對；`HintModal` 用 `DuelReel` 依序播放，有兩段時自動關閉的時間會延長。
+結算頁的人格卡也會列出共識技／衝突技。
+
+排行程（PLAN）、結算版面、快測流程都沒有改。
 
 ## v7.7 修正：購買前確認條款 + 購買後的去向
 

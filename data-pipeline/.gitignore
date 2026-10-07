@@ -1,0 +1,7 @@
+# 金鑰、虛擬環境
+.env
+.venv/
+__pycache__/
+# 抓回來的原始資料與整合結果：Google 內容最多暫存 30 天、不可公開散布（見 README）
+raw/
+output/
