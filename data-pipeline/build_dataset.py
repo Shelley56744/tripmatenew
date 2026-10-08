@@ -231,7 +231,7 @@ def pick_category(place):
         return TYPE_TO_CATEGORY[ptype]
     if ptype.endswith(FOOD_TYPES_SUFFIX) or ptype in {"restaurant", "food", "meal_takeaway", "bakery", "dessert_shop"}:
         return "排隊名店/街頭美食"
-    for t in types:
+    for t in place.get("types") or []:   # 照 Google 給的順序，結果才固定
         if t in TYPE_TO_CATEGORY:
             return TYPE_TO_CATEGORY[t]
     queried = [q.split("|", 1)[1] for q in place.get("_queries", []) if "|" in q]
